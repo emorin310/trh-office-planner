@@ -80,19 +80,6 @@
   #chat-toggle { background: none; border: 1px solid #2a2a5e; color: #ccc; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; }
   #chat-toggle:hover { background: #2a2a5e; }
 
-  #api-key-bar {
-    padding: 6px 10px; border-bottom: 1px solid #0f3460; display: flex; gap: 4px;
-  }
-  #api-key-bar input {
-    flex: 1; padding: 4px 6px; background: #1a1a3e; border: 1px solid #2a2a5e;
-    border-radius: 4px; color: #fff; font-size: 10px;
-  }
-  #api-key-bar button {
-    padding: 4px 8px; background: #e94560; border: none; border-radius: 4px;
-    color: #fff; font-size: 10px; cursor: pointer;
-  }
-  #api-key-status { font-size: 9px; color: #888; padding: 2px 10px; }
-
   #chat-messages {
     flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
   }
@@ -122,8 +109,6 @@
   /* Collapsed chat */
   #chat-panel.collapsed { width: 40px; }
   #chat-panel.collapsed #chat-header h2,
-  #chat-panel.collapsed #api-key-bar,
-  #chat-panel.collapsed #api-key-status,
   #chat-panel.collapsed #chat-messages,
   #chat-panel.collapsed #chat-input-bar { display: none; }
 </style>
@@ -213,17 +198,12 @@
       <h2>AI ASSISTANT</h2>
       <button id="chat-toggle">◀</button>
     </div>
-    <div id="api-key-bar">
-      <input id="api-key-input" type="password" placeholder="Anthropic API key (sk-ant-...)" />
-      <button id="api-key-save">Set</button>
-    </div>
-    <div id="api-key-status">No API key set</div>
     <div id="chat-messages">
-      <div class="chat-msg system">AI assistant ready. Set your Anthropic API key above, then describe what changes you'd like to make to the office layout.</div>
+      <div class="chat-msg system">AI assistant ready. Describe what changes you'd like to make to the office layout.</div>
     </div>
     <div id="chat-input-bar">
       <textarea id="chat-input" rows="2" placeholder="e.g. 'Add 4 desks in a row near the conference room'"></textarea>
-      <button id="chat-send" disabled>Send</button>
+      <button id="chat-send">Send</button>
     </div>
   </div>
 </div>
@@ -247,7 +227,8 @@ let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true;
 let moveableObjects = [], labelSprites = [];
 const dragPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
 const dragOffset = new THREE.Vector3();
-let apiKey = '';
+// Rate limit: 50 messages/day
+let dailyMsgCount = 0, dailyMsgDate = new Date().toDateString();
 
 // Three.js
 const container = document.getElementById('viewport');
@@ -846,16 +827,6 @@ document.getElementById('chat-toggle').addEventListener('click', () => {
   onResize();
 });
 
-document.getElementById('api-key-save').addEventListener('click', () => {
-  apiKey = document.getElementById('api-key-input').value.trim();
-  if (apiKey) {
-    document.getElementById('api-key-status').textContent = '✓ Key set (stored in memory only)';
-    document.getElementById('api-key-status').style.color = '#44cc66';
-    chatSend.disabled = false;
-    addChatMsg('system', 'API key set. You can now ask me to modify the office layout!');
-  }
-});
-
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 chatSend.addEventListener('click', sendChat);
 
@@ -874,7 +845,14 @@ function getSceneState() {
 
 async function sendChat() {
   const msg = chatInput.value.trim();
-  if (!msg || !apiKey) return;
+  if (!msg) return;
+
+  // Rate limit: 50 messages/day
+  const today = new Date().toDateString();
+  if (dailyMsgDate !== today) { dailyMsgCount = 0; dailyMsgDate = today; }
+  if (dailyMsgCount >= 50) { addChatMsg('error', 'Daily limit reached (50 messages). Try again tomorrow.'); return; }
+  dailyMsgCount++;
+
   chatInput.value = '';
   chatSend.disabled = true;
   addChatMsg('user', msg);
@@ -884,7 +862,7 @@ async function sendChat() {
     const res = await fetch(EDGE_FN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, sceneState: getSceneState(), apiKey }),
+      body: JSON.stringify({ message: msg, sceneState: getSceneState() }),
     });
     const raw = await res.text();
     thinking.remove();
