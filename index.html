@@ -1029,7 +1029,12 @@ document.getElementById('btn-orient').addEventListener('click', () => {
 document.getElementById('btn-undo').addEventListener('click', () => { document.dispatchEvent(new KeyboardEvent('keydown', { key:'z', metaKey:true })); });
 document.getElementById('btn-group').addEventListener('click', () => { document.dispatchEvent(new KeyboardEvent('keydown', { key:'g', metaKey:true })); });
 document.getElementById('btn-ungroup').addEventListener('click', () => { document.dispatchEvent(new KeyboardEvent('keydown', { key:'g', metaKey:true, shiftKey:true })); });
-document.getElementById('btn-refresh').addEventListener('click', () => { renderer.render(scene, camera); onResize(); addChatMsg('system', '✓ Scene refreshed'); });
+document.getElementById('btn-refresh').addEventListener('click', async () => {
+  addChatMsg('system', 'Checking for published layout...');
+  const loaded = await loadPublishedLayout();
+  if (loaded) addChatMsg('system', '✓ Loaded latest published layout');
+  else { addChatMsg('system', 'No published layout found — scene refreshed'); renderer.render(scene, camera); onResize(); }
+});
 document.getElementById('btn-grid').addEventListener('click', (e) => {
   if (e.shiftKey) { // Shift+click cycles grid cell size
     const sizes = [0.25, 0.5, 1, 2, 5]; gridSize = sizes[(sizes.indexOf(gridSize)+1)%sizes.length];
