@@ -740,10 +740,27 @@ function updateSelectionStatus() {
 }
 
 function selectObject(obj) {
-  if (selectedObj && selectedObj.userData && !selectedObj.userData.isGhost) selectedObj.material.emissive.setHex(0x000000);
+  // Deselect previous
+  if (selectedObj && selectedObj.userData && !selectedObj.userData.isGhost) {
+    if (selectedObj.material.emissive) selectedObj.material.emissive.setHex(0x000000);
+    else if (selectedObj.userData.isLabel) selectedObj.material.opacity = 1;
+  }
   clearMultiSelect();
   selectedObj = obj;
-  if (obj && !obj.userData.fixed) {
+  if (obj && obj.userData.isLabel) {
+    // Label selected — show minimal props
+    obj.material.opacity = 0.6;
+    document.getElementById('no-selection').style.display = 'none';
+    document.getElementById('selection-props').style.display = 'block';
+    document.getElementById('prop-name').value = (obj.userData.labelText || '').split('\n')[0];
+    document.getElementById('prop-x').value = obj.position.x.toFixed(1);
+    document.getElementById('prop-z').value = obj.position.z.toFixed(1);
+    document.getElementById('prop-rot').value = '0';
+    document.getElementById('prop-color').value = '#' + (obj.userData.labelColor || 0x44cc66).toString(16).padStart(6, '0');
+    document.getElementById('btn-lock').textContent = 'Lock';
+    document.getElementById('prop-w-row').style.display = 'none';
+    document.getElementById('prop-d-row').style.display = 'none';
+  } else if (obj && !obj.userData.fixed) {
     obj.material.emissive.setHex(0x333300);
     document.getElementById('no-selection').style.display = 'none';
     document.getElementById('selection-props').style.display = 'block';
@@ -781,7 +798,15 @@ function getIntersection(e) {
   raycaster.setFromCamera(mouse, camera);
 }
 function getFloorPoint(e) { getIntersection(e); const p = new THREE.Vector3(); raycaster.ray.intersectPlane(dragPlane, p); return p; }
-function getClickedObject(e) { getIntersection(e); return (raycaster.intersectObjects(moveableObjects.filter(o=>o.visible), false)[0] || {}).object || null; }
+function getClickedObject(e) {
+  getIntersection(e);
+  // Check moveable objects first, then labels
+  const hit = raycaster.intersectObjects(moveableObjects.filter(o=>o.visible), false)[0];
+  if (hit) return hit.object;
+  const lhit = raycaster.intersectObjects(labelSprites.filter(l=>l.visible), false)[0];
+  if (lhit) return lhit.object;
+  return null;
+}
 
 // ============================================================
 // Mouse events
@@ -798,7 +823,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); } } return; }
   const obj = getClickedObject(e);
   if (obj) {
-    if (e.shiftKey) { toggleMultiSelect(obj); }
+    if (e.shiftKey) { if (!obj.userData.isLabel) toggleMultiSelect(obj); }
     else { selectObject(obj); }
     if ((mode === 'move' || mode === 'select') && !obj.userData.fixed && !e.shiftKey) {
       isDragging = true;
@@ -837,11 +862,13 @@ canvas.addEventListener('mousemove', (e) => {
       const newX = snap(pt.x + dragOffset.x), newZ = snap(pt.z + dragOffset.z);
       const dx = newX - selectedObj.position.x, dz = newZ - selectedObj.position.z;
       selectedObj.position.x = newX; selectedObj.position.z = newZ;
-      // Move group members + labels together
-      const grp = getGroup(selectedObj);
-      if (grp) {
-        grp.members.forEach(m => { if (m !== selectedObj) { m.position.x += dx; m.position.z += dz; }});
-        grp.labels.forEach(l => { l.position.x += dx; l.position.z += dz; });
+      // Move group members + labels together (only for non-label primary selection)
+      if (!selectedObj.userData.isLabel) {
+        const grp = getGroup(selectedObj);
+        if (grp) {
+          grp.members.forEach(m => { if (m !== selectedObj) { m.position.x += dx; m.position.z += dz; }});
+          grp.labels.forEach(l => { l.position.x += dx; l.position.z += dz; });
+        }
       }
       updatePropFields();
     }
@@ -851,12 +878,17 @@ canvas.addEventListener('mousemove', (e) => {
     const pt = getFloorPoint(e); if (pt) { ghostObj.position.x = snap(pt.x); ghostObj.position.z = snap(pt.z); const d = getFurnitureDims(placeType); if (d) ghostObj.position.y = placeType==='window' ? 4+d.h/2 : d.h/2; } return;
   }
   const obj = getClickedObject(e);
-  if (hoveredObj && hoveredObj !== selectedObj && hoveredObj !== obj && !multiSelected.includes(hoveredObj)) hoveredObj.material.emissive.setHex(0x000000);
+  if (hoveredObj && hoveredObj !== selectedObj && hoveredObj !== obj && !multiSelected.includes(hoveredObj)) {
+    if (hoveredObj.material.emissive) hoveredObj.material.emissive.setHex(0x000000);
+    else if (hoveredObj.userData.isLabel) hoveredObj.material.opacity = 1;
+  }
   if (obj && obj !== selectedObj && !multiSelected.includes(obj)) {
-    obj.material.emissive.setHex(0x111100);
+    if (obj.material.emissive) obj.material.emissive.setHex(0x111100);
+    else if (obj.userData.isLabel) obj.material.opacity = 0.6;
     const tt = document.getElementById('tooltip');
     const grp = getGroup(obj);
-    tt.textContent = obj.userData.name + (obj.userData.fixed ? ' (Locked)' : '') + (obj.userData.wallClass ? ` [${obj.userData.wallClass}]` : '') + (grp ? ` [Group ${grp.id}]` : '');
+    const name = obj.userData.isLabel ? ('Label: ' + (obj.userData.labelText || '').split('\n')[0]) : obj.userData.name;
+    tt.textContent = name + (obj.userData.fixed ? ' (Locked)' : '') + (obj.userData.wallClass ? ` [${obj.userData.wallClass}]` : '') + (grp ? ` [Group ${grp.id}]` : '');
     tt.style.display = 'block'; tt.style.left = (e.clientX - 240) + 'px'; tt.style.top = (e.clientY - 28) + 'px';
   } else document.getElementById('tooltip').style.display = 'none';
   hoveredObj = obj;
@@ -946,6 +978,15 @@ document.addEventListener('keydown', (e) => {
 
   // Delete/Backspace — with undo
   if (e.key === 'Delete' || e.key === 'Backspace') {
+    // Handle label deletion
+    if (selectedObj && selectedObj.userData.isLabel) {
+      scene.remove(selectedObj);
+      labelSprites = labelSprites.filter(l => l !== selectedObj);
+      // Remove from any group
+      groups.forEach(g => { g.labels = g.labels.filter(l => l !== selectedObj); });
+      selectObject(null);
+      return;
+    }
     const all = getAllSelected();
     if (all.length) {
       pushUndo({ type:'delete', items: [...all] });
@@ -994,7 +1035,7 @@ document.getElementById('prop-name').addEventListener('change', e => { if (selec
 document.getElementById('prop-x').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.x = parseFloat(e.target.value); });
 document.getElementById('prop-z').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.z = parseFloat(e.target.value); });
 document.getElementById('prop-rot').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value)); });
-document.getElementById('prop-color').addEventListener('input', e => { if (selectedObj) { selectedObj.material.color.set(e.target.value); selectedObj.userData.originalColor = selectedObj.material.color.getHex(); }});
+document.getElementById('prop-color').addEventListener('input', e => { if (selectedObj && !selectedObj.userData.isLabel) { selectedObj.material.color.set(e.target.value); selectedObj.userData.originalColor = selectedObj.material.color.getHex(); }});
 
 function resizeObject(obj, newW, newD) {
   if (!obj) return;
