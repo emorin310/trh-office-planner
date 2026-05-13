@@ -261,8 +261,9 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 // Default orientation: top-down with North pointing LEFT on screen
-// theta=0 → camera east of target looking west → North (+Z) is screen-left
-const DEFAULT_VIEW = { phi: 0.25, theta: 0, radius: 130, tx: BLDG_W/2, tz: BLDG_D/2 };
+// theta=-PI/2 → camera south of target looking north → building rotated 90° CW
+// With this theta, screen-LEFT = +X, so compass N arrow points along +X
+const DEFAULT_VIEW = { phi: 0.25, theta: -Math.PI/2, radius: 130, tx: BLDG_W/2, tz: BLDG_D/2 };
 const orbitState = { target: new THREE.Vector3(DEFAULT_VIEW.tx, 0, DEFAULT_VIEW.tz), phi: DEFAULT_VIEW.phi, theta: DEFAULT_VIEW.theta, radius: DEFAULT_VIEW.radius, dragging: false, panning: false, lastX: 0, lastY: 0 };
 
 function updateOrbitCamera() {
@@ -531,33 +532,33 @@ function buildCompass() {
   const compassGroup = new THREE.Group();
   compassGroup.userData = { name: 'Compass', type: 'decoration', fixed: true, isCompass: true };
 
-  // Position compass outside building — bottom-right in default view
-  // With default view (theta=0): screen-left=+Z(N), screen-right=-Z(S), screen-up=-X(W), screen-down=+X(E)
-  // Place at low X, low Z = outside SW corner (screen upper-right area)
-  const cx = -15, cz = -15;
+  // Position compass outside building
+  // With theta=-PI/2: screen-LEFT=+X, screen-RIGHT=-X, screen-UP≈+Z, screen-DOWN≈-Z
+  // Place at low Z (screen bottom-right area, outside South wall)
+  const cx = BLDG_W / 2, cz = -18;
 
-  // North arrow shaft (red) — points along +Z
+  // North arrow shaft (red) — points along +X (= screen LEFT in this view)
   const shaftGeo = new THREE.CylinderGeometry(0.4, 0.4, 10, 8);
   const shaftMat = new THREE.MeshStandardMaterial({ color: 0xe94560 });
   const shaft = new THREE.Mesh(shaftGeo, shaftMat);
-  shaft.rotation.x = Math.PI / 2;
-  shaft.position.set(cx, 1, cz + 2);
+  shaft.rotation.z = -Math.PI / 2; // lay flat along +X
+  shaft.position.set(cx + 2, 1, cz);
   compassGroup.add(shaft);
 
-  // North arrowhead (red cone) — points +Z
+  // North arrowhead (red cone) — points +X
   const headGeo = new THREE.ConeGeometry(1.5, 3.5, 8);
   const headMat = new THREE.MeshStandardMaterial({ color: 0xe94560 });
   const head = new THREE.Mesh(headGeo, headMat);
-  head.rotation.x = Math.PI / 2;
-  head.position.set(cx, 1, cz + 8.5);
+  head.rotation.z = -Math.PI / 2; // point along +X
+  head.position.set(cx + 8.5, 1, cz);
   compassGroup.add(head);
 
-  // South half shaft (grey) — points -Z
+  // South half shaft (grey) — points -X
   const shaft2Geo = new THREE.CylinderGeometry(0.4, 0.4, 6, 8);
   const shaft2Mat = new THREE.MeshStandardMaterial({ color: 0x666666 });
   const shaft2 = new THREE.Mesh(shaft2Geo, shaft2Mat);
-  shaft2.rotation.x = Math.PI / 2;
-  shaft2.position.set(cx, 1, cz - 4);
+  shaft2.rotation.z = -Math.PI / 2;
+  shaft2.position.set(cx - 4, 1, cz);
   compassGroup.add(shaft2);
 
   // N label
@@ -572,7 +573,7 @@ function buildCompass() {
   nCtx.fillText('N', 64, 64);
   const nTex = new THREE.CanvasTexture(nCanvas);
   const nSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: nTex, transparent: true, depthTest: false }));
-  nSprite.position.set(cx, 2.5, cz + 12);
+  nSprite.position.set(cx + 12, 2.5, cz);
   nSprite.scale.set(5, 5, 1);
   compassGroup.add(nSprite);
 
@@ -588,7 +589,7 @@ function buildCompass() {
   sCtx.fillText('S', 64, 64);
   const sTex = new THREE.CanvasTexture(sCanvas);
   const sSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sTex, transparent: true, depthTest: false }));
-  sSprite.position.set(cx, 2.5, cz - 9);
+  sSprite.position.set(cx - 9, 2.5, cz);
   sSprite.scale.set(3.5, 3.5, 1);
   compassGroup.add(sSprite);
 
@@ -802,9 +803,9 @@ document.getElementById('btn-duplicate').addEventListener('click', () => {
 document.getElementById('btn-lock').addEventListener('click', () => { if (selectedObj) { selectedObj.userData.fixed = !selectedObj.userData.fixed; document.getElementById('btn-lock').textContent = selectedObj.userData.fixed ? 'Unlock' : 'Lock'; }});
 
 // Views
-document.getElementById('view-3d').addEventListener('click', () => { orbitState.phi=0.8; orbitState.theta=0.6; orbitState.radius=120; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-3d'); });
-document.getElementById('view-top').addEventListener('click', () => { orbitState.phi=0.01; orbitState.theta=0; orbitState.radius=100; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-top'); });
-document.getElementById('view-office').addEventListener('click', () => { orbitState.phi=0.6; orbitState.theta=0.4; orbitState.radius=50; orbitState.target.set(OFF_X+OFFICE_W/2,0,OFF_Z+OFFICE_D/2); updateOrbitCamera(); setView('view-office'); });
+document.getElementById('view-3d').addEventListener('click', () => { orbitState.phi=0.8; orbitState.theta=-Math.PI/2+0.6; orbitState.radius=120; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-3d'); });
+document.getElementById('view-top').addEventListener('click', () => { orbitState.phi=0.01; orbitState.theta=-Math.PI/2; orbitState.radius=100; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-top'); });
+document.getElementById('view-office').addEventListener('click', () => { orbitState.phi=0.6; orbitState.theta=-Math.PI/2+0.4; orbitState.radius=50; orbitState.target.set(OFF_X+OFFICE_W/2,0,OFF_Z+OFFICE_D/2); updateOrbitCamera(); setView('view-office'); });
 function setView(id) { ['view-3d','view-top','view-office'].forEach(v => document.getElementById(v).classList.remove('active')); document.getElementById(id).classList.add('active'); }
 
 document.getElementById('btn-orient').addEventListener('click', () => {
