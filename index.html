@@ -936,6 +936,9 @@ document.addEventListener('keydown', (e) => {
     } else if (action.type === 'rotate') {
       action.items.forEach(r => { r.obj.rotation.y = r.prevRot; });
       updatePropFields();
+    } else if (action.type === 'group-rotate') {
+      action.items.forEach(r => { r.obj.rotation.y = r.prevRot; r.obj.position.x = r.px; r.obj.position.z = r.pz; });
+      updatePropFields();
     } else if (action.type === 'group') {
       // Undo group = ungroup
       groups = groups.filter(g => g.id !== action.groupId);
@@ -1005,9 +1008,31 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'r' && !cmd) {
     const all = getAllSelected();
     if (all.length) {
-      const prevRots = all.map(o => ({ obj:o, prevRot: o.rotation.y }));
-      all.forEach(o => o.rotation.y += Math.PI/4);
-      pushUndo({ type:'rotate', items: prevRots });
+      const grp = getGroup(all[0]);
+      const angle = Math.PI / 4;
+      if (grp && grp.members.length >= 2) {
+        // Rotate entire group around its center
+        const allItems = [...grp.members, ...grp.labels];
+        const prevState = allItems.map(o => ({ obj:o, prevRot: o.rotation.y, px: o.position.x, pz: o.position.z }));
+        // Compute center of group members
+        let cx = 0, cz = 0;
+        grp.members.forEach(m => { cx += m.position.x; cz += m.position.z; });
+        cx /= grp.members.length; cz /= grp.members.length;
+        // Rotate each item around center
+        const cos = Math.cos(angle), sin = Math.sin(angle);
+        allItems.forEach(o => {
+          const dx = o.position.x - cx, dz = o.position.z - cz;
+          o.position.x = cx + dx * cos - dz * sin;
+          o.position.z = cz + dx * sin + dz * cos;
+          o.rotation.y += angle;
+        });
+        pushUndo({ type:'group-rotate', items: prevState });
+      } else {
+        // Single object rotation
+        const prevRots = all.map(o => ({ obj:o, prevRot: o.rotation.y }));
+        all.forEach(o => o.rotation.y += angle);
+        pushUndo({ type:'rotate', items: prevRots });
+      }
       updatePropFields();
     }
   }
