@@ -195,6 +195,7 @@
       <button id="btn-grid">Grid: ON</button>
       <button id="btn-snap">Snap: 0.5'</button>
       <button id="btn-labels">Labels: ON</button>
+      <button id="btn-orient">🧭 Reset Orient.</button>
       <button id="btn-refresh">🔄 Refresh</button>
       <button id="btn-save">💾 Save</button>
       <button id="btn-load">📂 Load</button>
@@ -259,7 +260,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
-const orbitState = { target: new THREE.Vector3(BLDG_W/2, 0, BLDG_D/2), phi: 0.8, theta: 0.8, radius: 120, dragging: false, panning: false, lastX: 0, lastY: 0 };
+// Default orientation: top-down with North pointing LEFT on screen
+const DEFAULT_VIEW = { phi: 0.25, theta: -Math.PI/2, radius: 115, tx: BLDG_W/2, tz: BLDG_D/2 };
+const orbitState = { target: new THREE.Vector3(DEFAULT_VIEW.tx, 0, DEFAULT_VIEW.tz), phi: DEFAULT_VIEW.phi, theta: DEFAULT_VIEW.theta, radius: DEFAULT_VIEW.radius, dragging: false, panning: false, lastX: 0, lastY: 0 };
 
 function updateOrbitCamera() {
   const { target, phi, theta, radius } = orbitState;
@@ -521,6 +524,83 @@ function buildDefaultFurniture() {
 }
 
 // ============================================================
+// Compass indicator (outside building, shows North direction)
+// ============================================================
+function buildCompass() {
+  const compassGroup = new THREE.Group();
+  compassGroup.userData = { name: 'Compass', type: 'decoration', fixed: true, isCompass: true };
+
+  // Position compass outside building (top-left area in default view)
+  const cx = -12, cz = BLDG_D + 12;
+
+  // North arrow shaft (red)
+  const shaftGeo = new THREE.CylinderGeometry(0.3, 0.3, 10, 8);
+  const shaftMat = new THREE.MeshStandardMaterial({ color: 0xe94560 });
+  const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+  shaft.rotation.x = Math.PI / 2; // lay flat, pointing along +Z (North)
+  shaft.position.set(cx, 1, cz);
+  compassGroup.add(shaft);
+
+  // North arrowhead (red cone)
+  const headGeo = new THREE.ConeGeometry(1.2, 3, 8);
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xe94560 });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.rotation.x = Math.PI / 2;
+  head.position.set(cx, 1, cz + 6.5);
+  compassGroup.add(head);
+
+  // South half shaft (white/grey)
+  const shaft2Geo = new THREE.CylinderGeometry(0.3, 0.3, 5, 8);
+  const shaft2Mat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+  const shaft2 = new THREE.Mesh(shaft2Geo, shaft2Mat);
+  shaft2.rotation.x = Math.PI / 2;
+  shaft2.position.set(cx, 1, cz - 4.5);
+  compassGroup.add(shaft2);
+
+  // N label
+  const nCanvas = document.createElement('canvas');
+  const nCtx = nCanvas.getContext('2d');
+  nCanvas.width = 128; nCanvas.height = 128;
+  nCtx.font = 'bold 80px system-ui';
+  nCtx.textAlign = 'center'; nCtx.textBaseline = 'middle';
+  nCtx.fillStyle = '#e94560';
+  nCtx.strokeStyle = '#000'; nCtx.lineWidth = 4;
+  nCtx.strokeText('N', 64, 64);
+  nCtx.fillText('N', 64, 64);
+  const nTex = new THREE.CanvasTexture(nCanvas);
+  const nSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: nTex, transparent: true, depthTest: false }));
+  nSprite.position.set(cx, 2, cz + 10);
+  nSprite.scale.set(4, 4, 1);
+  compassGroup.add(nSprite);
+
+  // S label
+  const sCanvas = document.createElement('canvas');
+  const sCtx = sCanvas.getContext('2d');
+  sCanvas.width = 128; sCanvas.height = 128;
+  sCtx.font = 'bold 60px system-ui';
+  sCtx.textAlign = 'center'; sCtx.textBaseline = 'middle';
+  sCtx.fillStyle = '#888888';
+  sCtx.strokeStyle = '#000'; sCtx.lineWidth = 3;
+  sCtx.strokeText('S', 64, 64);
+  sCtx.fillText('S', 64, 64);
+  const sTex = new THREE.CanvasTexture(sCanvas);
+  const sSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sTex, transparent: true, depthTest: false }));
+  sSprite.position.set(cx, 2, cz - 8);
+  sSprite.scale.set(3, 3, 1);
+  compassGroup.add(sSprite);
+
+  // Circle base
+  const ringGeo = new THREE.RingGeometry(7, 7.5, 32);
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0x444466, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(cx, 0.1, cz);
+  compassGroup.add(ring);
+
+  scene.add(compassGroup);
+}
+
+// ============================================================
 // Grid
 // ============================================================
 let gridHelper;
@@ -719,11 +799,16 @@ document.getElementById('btn-duplicate').addEventListener('click', () => {
 document.getElementById('btn-lock').addEventListener('click', () => { if (selectedObj) { selectedObj.userData.fixed = !selectedObj.userData.fixed; document.getElementById('btn-lock').textContent = selectedObj.userData.fixed ? 'Unlock' : 'Lock'; }});
 
 // Views
-document.getElementById('view-3d').addEventListener('click', () => { orbitState.phi=0.8; orbitState.theta=0.8; orbitState.radius=120; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-3d'); });
-document.getElementById('view-top').addEventListener('click', () => { orbitState.phi=0.01; orbitState.theta=0; orbitState.radius=100; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-top'); });
-document.getElementById('view-office').addEventListener('click', () => { orbitState.phi=0.6; orbitState.theta=0.6; orbitState.radius=50; orbitState.target.set(OFF_X+OFFICE_W/2,0,OFF_Z+OFFICE_D/2); updateOrbitCamera(); setView('view-office'); });
+document.getElementById('view-3d').addEventListener('click', () => { orbitState.phi=0.8; orbitState.theta=-Math.PI/2+0.6; orbitState.radius=120; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-3d'); });
+document.getElementById('view-top').addEventListener('click', () => { orbitState.phi=0.01; orbitState.theta=-Math.PI/2; orbitState.radius=100; orbitState.target.set(BLDG_W/2,0,BLDG_D/2); updateOrbitCamera(); setView('view-top'); });
+document.getElementById('view-office').addEventListener('click', () => { orbitState.phi=0.6; orbitState.theta=-Math.PI/2+0.4; orbitState.radius=50; orbitState.target.set(OFF_X+OFFICE_W/2,0,OFF_Z+OFFICE_D/2); updateOrbitCamera(); setView('view-office'); });
 function setView(id) { ['view-3d','view-top','view-office'].forEach(v => document.getElementById(v).classList.remove('active')); document.getElementById(id).classList.add('active'); }
 
+document.getElementById('btn-orient').addEventListener('click', () => {
+  orbitState.phi = DEFAULT_VIEW.phi; orbitState.theta = DEFAULT_VIEW.theta; orbitState.radius = DEFAULT_VIEW.radius;
+  orbitState.target.set(DEFAULT_VIEW.tx, 0, DEFAULT_VIEW.tz); updateOrbitCamera();
+  ['view-3d','view-top','view-office'].forEach(v => document.getElementById(v).classList.remove('active'));
+});
 document.getElementById('btn-refresh').addEventListener('click', () => { renderer.render(scene, camera); onResize(); addChatMsg('system', '✓ Scene refreshed'); });
 document.getElementById('btn-grid').addEventListener('click', () => { showGrid = !showGrid; gridHelper.visible = showGrid; document.getElementById('btn-grid').textContent = showGrid ? 'Grid: ON' : 'Grid: OFF'; });
 document.getElementById('btn-snap').addEventListener('click', () => { const s = [0,0.25,0.5,1,2]; snapSize = s[(s.indexOf(snapSize)+1)%s.length]; document.getElementById('btn-snap').textContent = snapSize > 0 ? `Snap: ${snapSize}'` : 'Snap: OFF'; });
@@ -927,6 +1012,7 @@ buildStructure();
 buildExistingStructures();
 createGrid();
 buildDefaultFurniture();
+buildCompass();
 onResize();
 animate();
 </script>
