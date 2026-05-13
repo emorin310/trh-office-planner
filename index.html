@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TRH Solutions — 3D Office Planner</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; overflow: hidden; height: 100vh; }
+
+  #app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  #sidebar { width: 260px; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; z-index: 10; }
+  #sidebar h2 { padding: 12px 16px; font-size: 14px; color: #e94560; border-bottom: 1px solid #0f3460; letter-spacing: 1px; }
+  .tool-section { padding: 8px 12px; border-bottom: 1px solid #0f3460; }
+  .tool-section h3 { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 6px; letter-spacing: 0.5px; }
+  .tool-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px; margin: 2px; border-radius: 6px;
+    background: #1a1a3e; border: 1px solid #2a2a5e; color: #ccc;
+    font-size: 12px; cursor: pointer; transition: all 0.15s;
+  }
+  .tool-btn:hover { background: #2a2a5e; color: #fff; }
+  .tool-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+  .tool-btn .icon { font-size: 14px; }
+
+  /* Properties panel */
+  #props { padding: 10px 12px; flex: 1; overflow-y: auto; }
+  #props h3 { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 8px; }
+  .prop-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .prop-row label { font-size: 11px; color: #aaa; width: 50px; }
+  .prop-row input { width: 70px; padding: 3px 6px; background: #1a1a3e; border: 1px solid #2a2a5e; border-radius: 4px; color: #fff; font-size: 11px; }
+  .prop-row input[type="color"] { width: 30px; height: 24px; padding: 0; border: none; cursor: pointer; }
+  .prop-actions { display: flex; gap: 4px; margin-top: 8px; }
+  .prop-actions button { flex: 1; padding: 5px; font-size: 11px; border-radius: 4px; border: 1px solid #2a2a5e; background: #1a1a3e; color: #ccc; cursor: pointer; }
+  .prop-actions button:hover { background: #2a2a5e; }
+  .prop-actions button.danger { border-color: #e94560; color: #e94560; }
+  .prop-actions button.danger:hover { background: #e94560; color: #fff; }
+
+  /* Canvas area */
+  #viewport { flex: 1; position: relative; }
+  #viewport canvas { display: block; }
+
+  /* Toolbar */
+  #toolbar {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; background: rgba(22,33,62,0.9); padding: 6px 10px; border-radius: 8px; border: 1px solid #0f3460;
+  }
+  #toolbar button {
+    padding: 6px 12px; font-size: 11px; border-radius: 4px;
+    border: 1px solid #2a2a5e; background: #1a1a3e; color: #ccc; cursor: pointer;
+  }
+  #toolbar button:hover { background: #2a2a5e; color: #fff; }
+  #toolbar button.active { background: #e94560; color: #fff; border-color: #e94560; }
+
+  /* Status bar */
+  #statusbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(22,33,62,0.9); padding: 4px 12px; font-size: 11px; color: #888;
+    display: flex; justify-content: space-between; border-top: 1px solid #0f3460;
+  }
+
+  /* Tooltip */
+  #tooltip {
+    position: absolute; display: none; background: rgba(22,33,62,0.95);
+    padding: 6px 10px; border-radius: 6px; border: 1px solid #0f3460;
+    font-size: 11px; pointer-events: none; z-index: 100;
+  }
+
+  /* Legend */
+  .legend { padding: 8px 12px; border-top: 1px solid #0f3460; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; margin: 2px 0; color: #888; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h2>TRH OFFICE PLANNER</h2>
+
+    <div class="tool-section">
+      <h3>Mode</h3>
+      <button class="tool-btn active" data-mode="select"><span class="icon">⊹</span> Select</button>
+      <button class="tool-btn" data-mode="move"><span class="icon">✥</span> Move</button>
+      <button class="tool-btn" data-mode="rotate"><span class="icon">↻</span> Rotate</button>
+    </div>
+
+    <div class="tool-section">
+      <h3>Furniture</h3>
+      <button class="tool-btn" data-place="desk"><span class="icon">▭</span> Desk 5×2.5</button>
+      <button class="tool-btn" data-place="ldesk"><span class="icon">⌐</span> L-Desk 5×5</button>
+      <button class="tool-btn" data-place="chair"><span class="icon">◯</span> Chair</button>
+      <button class="tool-btn" data-place="table-sm"><span class="icon">▢</span> Table 3×3</button>
+      <button class="tool-btn" data-place="table-lg"><span class="icon">▢</span> Table 6×3</button>
+      <button class="tool-btn" data-place="cabinet"><span class="icon">▮</span> Cabinet 3×1.5</button>
+      <button class="tool-btn" data-place="bookshelf"><span class="icon">▯</span> Shelf 4×1</button>
+      <button class="tool-btn" data-place="couch"><span class="icon">▬</span> Couch 6×2.5</button>
+    </div>
+
+    <div class="tool-section">
+      <h3>Structure</h3>
+      <button class="tool-btn" data-place="wall"><span class="icon">│</span> Wall</button>
+      <button class="tool-btn" data-place="half-wall"><span class="icon">┊</span> Half Wall</button>
+      <button class="tool-btn" data-place="door"><span class="icon">🚪</span> Door 3'</button>
+      <button class="tool-btn" data-place="window"><span class="icon">▯</span> Window 4'</button>
+      <button class="tool-btn" data-place="partition"><span class="icon">┃</span> Partition 6'</button>
+    </div>
+
+    <div id="props">
+      <h3>Properties</h3>
+      <div id="no-selection" style="font-size:11px; color:#666;">Click an object to select it</div>
+      <div id="selection-props" style="display:none;">
+        <div class="prop-row"><label>Name</label><input id="prop-name" type="text"></div>
+        <div class="prop-row"><label>X (ft)</label><input id="prop-x" type="number" step="0.5"></div>
+        <div class="prop-row"><label>Z (ft)</label><input id="prop-z" type="number" step="0.5"></div>
+        <div class="prop-row"><label>Rot °</label><input id="prop-rot" type="number" step="15"></div>
+        <div class="prop-row"><label>Color</label><input id="prop-color" type="color" value="#4488aa"></div>
+        <div class="prop-actions">
+          <button id="btn-duplicate">Duplicate</button>
+          <button id="btn-lock">Lock</button>
+          <button id="btn-delete" class="danger">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#e94560"></div> Fixed / Structural</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#4488aa"></div> Moveable Furniture</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#44aa66"></div> Walls & Partitions</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#aa8844"></div> Doors & Windows</div>
+    </div>
+  </div>
+
+  <div id="viewport">
+    <div id="toolbar">
+      <button id="view-3d" class="active">3D View</button>
+      <button id="view-top">Top View</button>
+      <button id="view-front">Front View</button>
+      <button id="btn-grid">Grid: ON</button>
+      <button id="btn-snap">Snap: 0.5'</button>
+      <button id="btn-labels">Labels: ON</button>
+      <button id="btn-save">💾 Save</button>
+      <button id="btn-load">📂 Load</button>
+      <button id="btn-reset">↺ Reset</button>
+    </div>
+    <div id="tooltip"></div>
+    <div id="statusbar">
+      <span id="status-left">Ready</span>
+      <span id="status-right">Building: 102' × 96' | Office: 36'1" × 29'9" (~1,075 sf)</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// TRH Solutions 3D Office Planner
+// Building envelope: 102' x 96' (from SketchUp)
+// Office build-out: 36'1" x 29'9" (~1,075 sq ft)
+// ============================================================
+
+const BLDG_W = 96;       // 96' building width
+const BLDG_D = 102;      // 102' building depth
+const OFFICE_W = 36.083; // 36'1"
+const OFFICE_D = 29.75;  // 29'9"
+// Office build-out positioned in upper-right of building
+const OFF_X = BLDG_W - OFFICE_W - 10; // offset from west wall
+const OFF_Z = BLDG_D - OFFICE_D - 2;  // offset from south wall (near top/north)
+const WALL_H = 9;        // 9' ceiling
+const WALL_T = 0.5;      // wall thickness
+const GRID_SIZE = 0.5;   // snap increment
+const HALF_WALL_H = 4;
+const WH_WALL_H = 16;    // warehouse wall height
+
+// State
+let mode = 'select';
+let placeType = null;
+let selectedObj = null;
+let hoveredObj = null;
+let isDragging = false;
+let dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+let dragOffset = new THREE.Vector3();
+let showGrid = true;
+let snapSize = 0.5;
+let showLabels = true;
+let moveableObjects = [];
+let labelSprites = [];
+let wallDrawStart = null;
+
+// Three.js setup
+const container = document.getElementById('viewport');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 800);
+camera.position.set(80, 70, 90);
+camera.lookAt(BLDG_W/2, 0, BLDG_D/2);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+// Orbit controls (inline minimal implementation)
+const orbitState = { target: new THREE.Vector3(BLDG_W/2, 0, BLDG_D/2), phi: 0.8, theta: 0.8, radius: 120, dragging: false, panning: false, lastX: 0, lastY: 0 };
+
+function updateOrbitCamera() {
+  const { target, phi, theta, radius } = orbitState;
+  camera.position.set(
+    target.x + radius * Math.sin(phi) * Math.cos(theta),
+    target.y + radius * Math.cos(phi),
+    target.z + radius * Math.sin(phi) * Math.sin(theta)
+  );
+  camera.lookAt(target);
+}
+updateOrbitCamera();
+
+// Raycaster
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const mouseScreen = new THREE.Vector2();
+
+// ============================================================
+// Lighting
+// ============================================================
+const ambient = new THREE.AmbientLight(0x404060, 0.6);
+scene.add(ambient);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(60, 80, 40);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.left = -120; dirLight.shadow.camera.right = 120;
+dirLight.shadow.camera.top = 120; dirLight.shadow.camera.bottom = -120;
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0x8888cc, 0x443322, 0.3);
+scene.add(hemiLight);
+
+// ============================================================
+// Materials
+// ============================================================
+const mats = {
+  floor: new THREE.MeshStandardMaterial({ color: 0x2a2a3e, roughness: 0.8 }),
+  wall: new THREE.MeshStandardMaterial({ color: 0x3a3a5e, roughness: 0.6 }),
+  fixedWall: new THREE.MeshStandardMaterial({ color: 0xe94560, roughness: 0.5, transparent: true, opacity: 0.7 }),
+  partition: new THREE.MeshStandardMaterial({ color: 0x44aa66, roughness: 0.5, transparent: true, opacity: 0.6 }),
+  desk: new THREE.MeshStandardMaterial({ color: 0x4488aa, roughness: 0.4 }),
+  chair: new THREE.MeshStandardMaterial({ color: 0x336688, roughness: 0.5 }),
+  table: new THREE.MeshStandardMaterial({ color: 0x5599bb, roughness: 0.4 }),
+  cabinet: new THREE.MeshStandardMaterial({ color: 0x557799, roughness: 0.5 }),
+  door: new THREE.MeshStandardMaterial({ color: 0xaa8844, roughness: 0.4, transparent: true, opacity: 0.7 }),
+  window: new THREE.MeshStandardMaterial({ color: 0x88ccff, roughness: 0.1, transparent: true, opacity: 0.4 }),
+  post: new THREE.MeshStandardMaterial({ color: 0xe94560, roughness: 0.3 }),
+  highlight: new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.3, transparent: true, opacity: 0.8 }),
+  ghost: new THREE.MeshStandardMaterial({ color: 0x88ff88, roughness: 0.5, transparent: true, opacity: 0.3 }),
+  couch: new THREE.MeshStandardMaterial({ color: 0x6644aa, roughness: 0.6 }),
+};
+
+// ============================================================
+// Helper: create labeled box
+// ============================================================
+function createBox(w, h, d, mat, pos, name, opts = {}) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mesh = new THREE.Mesh(geo, mat.clone());
+  mesh.position.set(pos.x, pos.y + h/2, pos.z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData = {
+    name: name,
+    type: opts.type || 'furniture',
+    fixed: opts.fixed || false,
+    width: w, height: h, depth: d,
+    originalColor: mat.color.getHex(),
+  };
+  scene.add(mesh);
+  if (!opts.fixed) moveableObjects.push(mesh);
+  return mesh;
+}
+
+// ============================================================
+// Build fixed structure — ENTIRE 102'×96' building
+// ============================================================
+function buildStructure() {
+  // ---- Ground plane (extends beyond building) ----
+  const groundGeo = new THREE.PlaneGeometry(BLDG_W + 60, BLDG_D + 60);
+  const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(BLDG_W/2, -0.02, BLDG_D/2);
+  ground.receiveShadow = true;
+  ground.userData = { name: 'ground', type: 'floor', fixed: true };
+  scene.add(ground);
+
+  // ---- Warehouse floor (full building footprint) ----
+  const whFloorMat = new THREE.MeshStandardMaterial({ color: 0x252535, roughness: 0.85 });
+  const whFloor = new THREE.Mesh(new THREE.PlaneGeometry(BLDG_W, BLDG_D), whFloorMat);
+  whFloor.rotation.x = -Math.PI / 2;
+  whFloor.position.set(BLDG_W/2, -0.01, BLDG_D/2);
+  whFloor.receiveShadow = true;
+  whFloor.userData = { name: 'warehouse-floor', type: 'floor', fixed: true };
+  scene.add(whFloor);
+
+  // ---- Office floor (lighter, elevated slightly) ----
+  const officeFloorMat = new THREE.MeshStandardMaterial({ color: 0x3a3a5e, roughness: 0.7 });
+  const officeFloor = new THREE.Mesh(new THREE.PlaneGeometry(OFFICE_W, OFFICE_D), officeFloorMat);
+  officeFloor.rotation.x = -Math.PI / 2;
+  officeFloor.position.set(OFF_X + OFFICE_W/2, 0.01, OFF_Z + OFFICE_D/2);
+  officeFloor.receiveShadow = true;
+  officeFloor.userData = { name: 'office-floor', type: 'floor', fixed: true };
+  scene.add(officeFloor);
+
+  // ==== OUTER BUILDING WALLS (102' x 96') — FIXED / UNCHANGEABLE ====
+  const bwMat = mats.fixedWall;
+  // South wall (front of building) — with gaps for loading dock + garage door
+  const ldW = 18.97;  // 18'11 5/8" loading dock
+  const gdW = 15.80;  // 15'9 5/8" garage door
+  const southGap1Start = 20; // loading dock position
+  const southGap2Start = southGap1Start + ldW + 4; // garage door after gap
+  // South wall segments around openings
+  createBox(southGap1Start, WH_WALL_H, WALL_T, bwMat, { x: southGap1Start/2, y: 0, z: 0 }, 'South Wall (W)', { fixed: true, type: 'structure' });
+  createBox(4, WH_WALL_H, WALL_T, bwMat, { x: southGap1Start + ldW + 2, y: 0, z: 0 }, 'South Wall (Mid)', { fixed: true, type: 'structure' });
+  const remainW = BLDG_W - (southGap2Start + gdW);
+  createBox(remainW, WH_WALL_H, WALL_T, bwMat, { x: southGap2Start + gdW + remainW/2, y: 0, z: 0 }, 'South Wall (E)', { fixed: true, type: 'structure' });
+  // Loading dock opening
+  createBox(ldW, 3, WALL_T, mats.door, { x: southGap1Start + ldW/2, y: 0, z: 0 }, 'Loading Dock (18\'11")', { fixed: true, type: 'structure' });
+  addLabel('Loading Dock\n18\'11⅝"', southGap1Start + ldW/2, 5, 3, 0xaa8844);
+  // Garage door opening
+  createBox(gdW, 3, WALL_T, mats.door, { x: southGap2Start + gdW/2, y: 0, z: 0 }, 'Garage Door (15\'10")', { fixed: true, type: 'structure' });
+  addLabel('Garage Door\n15\'9⅝"', southGap2Start + gdW/2, 5, 3, 0xaa8844);
+
+  // North wall
+  createBox(BLDG_W, WH_WALL_H, WALL_T, bwMat, { x: BLDG_W/2, y: 0, z: BLDG_D }, 'North Wall', { fixed: true, type: 'structure' });
+  // West wall
+  createBox(WALL_T, WH_WALL_H, BLDG_D, bwMat, { x: 0, y: 0, z: BLDG_D/2 }, 'West Wall', { fixed: true, type: 'structure' });
+  // East wall
+  createBox(WALL_T, WH_WALL_H, BLDG_D, bwMat, { x: BLDG_W, y: 0, z: BLDG_D/2 }, 'East Wall', { fixed: true, type: 'structure' });
+
+  addLabel('Building Envelope\n102\' × 96\'', BLDG_W/2, 12, BLDG_D/2 - 20, 0x555555);
+
+  // ==== WAREHOUSE AREA label ====
+  addLabel('Warehouse', BLDG_W/2 - 10, 5, 30, 0x555566);
+  addLabel('Warehouse Entrance', BLDG_W/2 + 10, 2, 3, 0x666677);
+
+  // ==== SHED (80.23 sq ft) — SW corner area ====
+  const shedW = 10; const shedD = 8;
+  createBox(shedW, WALL_H, WALL_T, bwMat, { x: 5 + shedW/2, y: 0, z: 10 }, 'Shed North Wall', { fixed: true, type: 'structure' });
+  createBox(shedW, WALL_H, WALL_T, bwMat, { x: 5 + shedW/2, y: 0, z: 10 - shedD }, 'Shed South Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, shedD, bwMat, { x: 5, y: 0, z: 10 - shedD/2 }, 'Shed West Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, shedD, bwMat, { x: 5 + shedW, y: 0, z: 10 - shedD/2 }, 'Shed East Wall', { fixed: true, type: 'structure' });
+  addLabel('Shed\n80 sq ft', 10, 3, 6, 0x888888);
+
+  // ==== ELECTRICAL ROOM (195.78 sq ft) — east side ====
+  const erW = 14; const erD = 14;
+  const erX = BLDG_W - erW - 1;
+  const erZ = 30;
+  createBox(erW, WALL_H, WALL_T, bwMat, { x: erX + erW/2, y: 0, z: erZ + erD }, 'Elec Room North Wall', { fixed: true, type: 'structure' });
+  createBox(erW, WALL_H, WALL_T, bwMat, { x: erX + erW/2, y: 0, z: erZ }, 'Elec Room South Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, erD, bwMat, { x: erX, y: 0, z: erZ + erD/2 }, 'Elec Room West Wall', { fixed: true, type: 'structure' });
+  addLabel('Electrical Room\n~196 sq ft', erX + erW/2, 3, erZ + erD/2, 0x888888);
+
+  // ==== OFFICE BUILD-OUT (~1,075 sq ft) ====
+  // Office perimeter walls (inside the building, at offset)
+  const ox = OFF_X, oz = OFF_Z;
+  createBox(OFFICE_W, WALL_H, WALL_T, bwMat, { x: ox + OFFICE_W/2, y: 0, z: oz }, 'Office South Wall', { fixed: true, type: 'structure' });
+  createBox(OFFICE_W, WALL_H, WALL_T, bwMat, { x: ox + OFFICE_W/2, y: 0, z: oz + OFFICE_D }, 'Office North Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, OFFICE_D, bwMat, { x: ox, y: 0, z: oz + OFFICE_D/2 }, 'Office West Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, OFFICE_D, bwMat, { x: ox + OFFICE_W, y: 0, z: oz + OFFICE_D/2 }, 'Office East Wall', { fixed: true, type: 'structure' });
+  addLabel('Office Build-Out\n36\'1" × 29\'9" (~1,075 sf)', ox + OFFICE_W/2, 6, oz + OFFICE_D/2, 0x44aacc);
+
+  // ---- Structural posts (FIXED) — inside office space ----
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 24, y: 0, z: oz + 15 }, 'Post 1 (Structural)', { fixed: true, type: 'structure' });
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 10, y: 0, z: oz + 15 }, 'Post 2 (Structural)', { fixed: true, type: 'structure' });
+
+  // ---- Existing rooms along office North wall (Kitchen, WCs) — FIXED ----
+  const onz = oz + OFFICE_D; // office north z
+  // Kitchen (~17'x8') — NW corner of office
+  createBox(17, WALL_H, WALL_T, bwMat, { x: ox + 8.5, y: 0, z: onz - 8 }, 'Kitchen South Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, 8, bwMat, { x: ox + 17, y: 0, z: onz - 4 }, 'Kitchen East Wall', { fixed: true, type: 'structure' });
+  addLabel('Kitchen\n~17\'×8\' (136sf)', ox + 8.5, 3, onz - 4, 0x888888);
+
+  // Men's WC (8'x10')
+  createBox(8, WALL_H, WALL_T, bwMat, { x: ox + 21, y: 0, z: onz - 10 }, 'Mens WC South Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, 10, bwMat, { x: ox + 17, y: 0, z: onz - 5 }, 'Mens WC West Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, 10, bwMat, { x: ox + 25, y: 0, z: onz - 5 }, 'Mens WC East Wall', { fixed: true, type: 'structure' });
+  addLabel("Men's WC\n8'×10'", ox + 21, 3, onz - 5, 0x888888);
+
+  // Women's WC (8'x10')
+  createBox(8, WALL_H, WALL_T, bwMat, { x: ox + 29, y: 0, z: onz - 10 }, 'Womens WC South Wall', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, 10, bwMat, { x: ox + 33, y: 0, z: onz - 5 }, 'Womens WC East Wall', { fixed: true, type: 'structure' });
+  addLabel("Women's WC\n8'×10'", ox + 29, 3, onz - 5, 0x888888);
+
+  // ---- Existing Pvt Office A (8.8'×11') — east of office, existing ----
+  const paX = ox + OFFICE_W + 1;
+  const paZ = oz + OFFICE_D - 20;
+  createBox(8.8, WALL_H, WALL_T, bwMat, { x: paX + 4.4, y: 0, z: paZ }, 'Pvt Office A South', { fixed: true, type: 'structure' });
+  createBox(8.8, WALL_H, WALL_T, bwMat, { x: paX + 4.4, y: 0, z: paZ + 11 }, 'Pvt Office A North', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, 11, bwMat, { x: paX, y: 0, z: paZ + 5.5 }, 'Pvt Office A West', { fixed: true, type: 'structure' });
+  addLabel("Pvt Office A\n8.8'×11'", paX + 4.4, 3, paZ + 5.5, 0x888888);
+
+  // ---- Existing Pvt Office B (7.5'×11') — NE area ----
+  const pbX = ox + OFFICE_W + 1;
+  const pbZ = oz + OFFICE_D - 5;
+  createBox(7.5, WALL_H, WALL_T, bwMat, { x: pbX + 3.75, y: 0, z: pbZ }, 'Pvt Office B South', { fixed: true, type: 'structure' });
+  createBox(WALL_T, WALL_H, 11, bwMat, { x: pbX, y: 0, z: pbZ + 5.5 }, 'Pvt Office B West', { fixed: true, type: 'structure' });
+  addLabel("Pvt Office B\n7.5'×11'", pbX + 3.75, 3, pbZ + 5.5, 0x888888);
+
+  // ---- Admin x4 area (existing) — east of office ----
+  addLabel("Admin ×4\n(existing)", paX + 4.4, 3, paZ + 14, 0x888888);
+
+  // ---- Corridor (3' wide) running east-west inside office ----
+  const corridorMat = new THREE.MeshStandardMaterial({ color: 0x333355, roughness: 0.8 });
+  const corridorFloor = new THREE.Mesh(new THREE.PlaneGeometry(OFFICE_W - 1, 3), corridorMat);
+  corridorFloor.rotation.x = -Math.PI / 2;
+  corridorFloor.position.set(ox + OFFICE_W/2, 0.02, oz + 15);
+  corridorFloor.receiveShadow = true;
+  corridorFloor.userData = { name: 'Corridor', type: 'floor', fixed: true };
+  scene.add(corridorFloor);
+  addLabel('Corridor (3\')', ox + OFFICE_W/2, 0.5, oz + 15, 0x666666);
+}
+
+// ============================================================
+// Default furniture layout (from blueprint)
+// ============================================================
+function buildDefaultFurniture() {
+  const ox = OFF_X, oz = OFF_Z; // office origin offset
+
+  // --- Private Offices (Off 1, 2, 3) — top row, 12×8 each ---
+  createBox(12, WALL_H, WALL_T, mats.partition, { x: ox + 6, y: 0, z: oz + OFFICE_D - 10 - 8 }, 'Off1 South Wall', { type: 'partition' });
+  createBox(WALL_T, WALL_H, 8, mats.partition, { x: ox + 12, y: 0, z: oz + OFFICE_D - 10 - 4 }, 'Off1 East Wall', { type: 'partition' });
+  addLabel('Off 1 (12×8)', ox + 6, 3, oz + OFFICE_D - 14, 0x44aa66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 4, y: 0, z: oz + OFFICE_D - 13 }, 'Off1 Desk', { type: 'furniture' });
+  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 4, y: 0, z: oz + OFFICE_D - 15 }, 'Off1 Chair', { type: 'furniture' });
+
+  createBox(WALL_T, WALL_H, 8, mats.partition, { x: ox + 24, y: 0, z: oz + OFFICE_D - 10 - 4 }, 'Off2 East Wall', { type: 'partition' });
+  addLabel('Off 2 (12×8)', ox + 18, 3, oz + OFFICE_D - 14, 0x44aa66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 16, y: 0, z: oz + OFFICE_D - 13 }, 'Off2 Desk', { type: 'furniture' });
+  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 16, y: 0, z: oz + OFFICE_D - 15 }, 'Off2 Chair', { type: 'furniture' });
+
+  addLabel('Off 3 (12×8)', ox + 30, 3, oz + OFFICE_D - 14, 0x44aa66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 28, y: 0, z: oz + OFFICE_D - 13 }, 'Off3 Desk', { type: 'furniture' });
+  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 28, y: 0, z: oz + OFFICE_D - 15 }, 'Off3 Chair', { type: 'furniture' });
+
+  // --- Conference Room (14'×18.7') — SW of office area ---
+  createBox(14, WALL_H, WALL_T, mats.partition, { x: ox + 7, y: 0, z: oz + 13.5 }, 'Conf Room North Wall', { type: 'partition' });
+  createBox(WALL_T, WALL_H, 12, mats.partition, { x: ox + 14, y: 0, z: oz + 7.5 }, 'Conf Room East Wall', { type: 'partition' });
+  addLabel('Conference Room\n14\'×18.7\' (262sf)', ox + 7, 3, oz + 7, 0x44aa66);
+  createBox(8, 2.5, 4, mats.table, { x: ox + 7, y: 0, z: oz + 7 }, 'Conf Table', { type: 'furniture' });
+  for (let i = 0; i < 4; i++) {
+    createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 3 + i * 2.5, y: 0, z: oz + 4.5 }, `Conf Chair ${i+1}`, { type: 'furniture' });
+    createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 3 + i * 2.5, y: 0, z: oz + 9.5 }, `Conf Chair ${i+5}`, { type: 'furniture' });
+  }
+
+  // --- 7 Workstations (C1-C7) ---
+  const wsStartX = ox + 16;
+  for (let i = 0; i < 3; i++) {
+    createBox(4, 2.5, 3, mats.desk, { x: wsStartX + i * 5, y: 0, z: oz + 10 }, `C${i+1} Desk`, { type: 'furniture' });
+    createBox(1.3, 2.8, 1.3, mats.chair, { x: wsStartX + i * 5, y: 0, z: oz + 12 }, `C${i+1} Chair`, { type: 'furniture' });
+  }
+  for (let i = 0; i < 4; i++) {
+    createBox(4, 2.5, 3, mats.desk, { x: wsStartX + i * 5, y: 0, z: oz + 5 }, `C${i+4} Desk`, { type: 'furniture' });
+    createBox(1.3, 2.8, 1.3, mats.chair, { x: wsStartX + i * 5, y: 0, z: oz + 3 }, `C${i+4} Chair`, { type: 'furniture' });
+  }
+  addLabel('Workstations (C1-C7)', ox + 23, 3, oz + 7.5, 0x4488aa);
+
+  // --- Off 4 (10×6) and Off 5 (11×6) ---
+  createBox(WALL_T, WALL_H, 6, mats.partition, { x: ox + 16, y: 0, z: oz + 3 }, 'Off4 East Wall', { type: 'partition' });
+  createBox(10, WALL_H, WALL_T, mats.partition, { x: ox + 19, y: 0, z: oz + 6 }, 'Off4/5 North Wall', { type: 'partition' });
+  addLabel('Off 4 (10×6)', ox + 19, 3, oz + 2.5, 0x44aa66);
+
+  createBox(WALL_T, WALL_H, 6, mats.partition, { x: ox + 26, y: 0, z: oz + 3 }, 'Off5 Divider', { type: 'partition' });
+  addLabel('Off 5 (11×6)', ox + 30, 3, oz + 2.5, 0x44aa66);
+}
+
+// ============================================================
+// Grid
+// ============================================================
+let gridHelper;
+function createGrid() {
+  gridHelper = new THREE.GridHelper(150, 300, 0x333355, 0x222244);
+  gridHelper.position.set(BLDG_W/2, 0.02, BLDG_D/2);
+  scene.add(gridHelper);
+}
+
+// ============================================================
+// Labels (CSS2D-like using sprites)
+// ============================================================
+function addLabel(text, x, y, z, color) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 512; canvas.height = 128;
+  ctx.fillStyle = 'transparent';
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.font = 'bold 36px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  const lines = text.split('\n');
+  lines.forEach((line, i) => {
+    ctx.strokeText(line, 256, 50 + i * 40);
+    ctx.fillText(line, 256, 50 + i * 40);
+  });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.position.set(x, y, z);
+  sprite.scale.set(10, 2.5, 1);
+  sprite.userData = { isLabel: true };
+  scene.add(sprite);
+  labelSprites.push(sprite);
+}
+
+// ============================================================
+// Ghost object for placement preview
+// ============================================================
+let ghostObj = null;
+
+function createGhostForType(type) {
+  removeGhost();
+  const dims = getFurnitureDims(type);
+  if (!dims) return;
+  const geo = type === 'chair'
+    ? new THREE.CylinderGeometry(dims.w/2, dims.w/2, dims.h, 16)
+    : new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+  ghostObj = new THREE.Mesh(geo, mats.ghost.clone());
+  ghostObj.userData = { isGhost: true };
+  scene.add(ghostObj);
+}
+
+function removeGhost() {
+  if (ghostObj) { scene.remove(ghostObj); ghostObj = null; }
+}
+
+function getFurnitureDims(type) {
+  const map = {
+    'desk':      { w: 5, h: 2.5, d: 2.5 },
+    'ldesk':     { w: 5, h: 2.5, d: 5 },
+    'chair':     { w: 1.5, h: 2.8, d: 1.5 },
+    'table-sm':  { w: 3, h: 2.5, d: 3 },
+    'table-lg':  { w: 6, h: 2.5, d: 3 },
+    'cabinet':   { w: 3, h: 4, d: 1.5 },
+    'bookshelf': { w: 4, h: 5, d: 1 },
+    'couch':     { w: 6, h: 2.5, d: 2.5 },
+    'wall':      { w: 8, h: WALL_H, d: WALL_T },
+    'half-wall': { w: 8, h: HALF_WALL_H, d: WALL_T },
+    'door':      { w: 3, h: 7, d: WALL_T },
+    'window':    { w: 4, h: 3, d: WALL_T },
+    'partition':  { w: 6, h: WALL_H, d: WALL_T },
+  };
+  return map[type] || null;
+}
+
+function getMaterialForType(type) {
+  if (['wall', 'half-wall', 'partition'].includes(type)) return mats.partition;
+  if (type === 'door') return mats.door;
+  if (type === 'window') return mats.window;
+  if (type === 'chair') return mats.chair;
+  if (type === 'couch') return mats.couch;
+  if (['table-sm', 'table-lg'].includes(type)) return mats.table;
+  if (['cabinet', 'bookshelf'].includes(type)) return mats.cabinet;
+  return mats.desk;
+}
+
+function placeObject(type, position) {
+  const dims = getFurnitureDims(type);
+  if (!dims) return;
+  const mat = getMaterialForType(type);
+  const name = type.charAt(0).toUpperCase() + type.slice(1).replace('-', ' ');
+
+  let mesh;
+  if (type === 'chair') {
+    const geo = new THREE.CylinderGeometry(dims.w/2, dims.w/2, dims.h, 16);
+    mesh = new THREE.Mesh(geo, mat.clone());
+    mesh.position.set(position.x, dims.h/2, position.z);
+  } else if (type === 'window') {
+    const geo = new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+    mesh = new THREE.Mesh(geo, mat.clone());
+    mesh.position.set(position.x, 4 + dims.h/2, position.z); // windows at 4' height
+  } else {
+    const geo = new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+    mesh = new THREE.Mesh(geo, mat.clone());
+    mesh.position.set(position.x, dims.h/2, position.z);
+  }
+
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData = {
+    name: name,
+    type: ['wall', 'half-wall', 'partition'].includes(type) ? 'partition' : (type === 'door' || type === 'window' ? 'opening' : 'furniture'),
+    fixed: false,
+    width: dims.w, height: dims.h, depth: dims.d,
+    originalColor: mat.color.getHex(),
+    furnitureType: type,
+  };
+
+  scene.add(mesh);
+  moveableObjects.push(mesh);
+  selectObject(mesh);
+  return mesh;
+}
+
+// ============================================================
+// Selection
+// ============================================================
+function selectObject(obj) {
+  // Deselect previous
+  if (selectedObj && selectedObj.userData && !selectedObj.userData.isGhost) {
+    selectedObj.material.emissive.setHex(0x000000);
+  }
+
+  selectedObj = obj;
+
+  if (obj && !obj.userData.fixed) {
+    obj.material.emissive.setHex(0x333300);
+    document.getElementById('no-selection').style.display = 'none';
+    document.getElementById('selection-props').style.display = 'block';
+    document.getElementById('prop-name').value = obj.userData.name || '';
+    document.getElementById('prop-x').value = obj.position.x.toFixed(1);
+    document.getElementById('prop-z').value = obj.position.z.toFixed(1);
+    document.getElementById('prop-rot').value = Math.round(THREE.MathUtils.radToDeg(obj.rotation.y));
+    document.getElementById('prop-color').value = '#' + obj.material.color.getHexString();
+    document.getElementById('btn-lock').textContent = obj.userData.fixed ? 'Unlock' : 'Lock';
+  } else {
+    document.getElementById('no-selection').style.display = 'block';
+    document.getElementById('selection-props').style.display = 'none';
+    selectedObj = null;
+  }
+}
+
+// ============================================================
+// Snap
+// ============================================================
+function snap(val) {
+  if (snapSize <= 0) return val;
+  return Math.round(val / snapSize) * snapSize;
+}
+
+// ============================================================
+// Raycast helpers
+// ============================================================
+function getIntersection(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  mouseScreen.set(e.clientX, e.clientY);
+  raycaster.setFromCamera(mouse, camera);
+}
+
+function getFloorPoint(e) {
+  getIntersection(e);
+  const point = new THREE.Vector3();
+  raycaster.ray.intersectPlane(dragPlane, point);
+  return point;
+}
+
+function getClickedObject(e) {
+  getIntersection(e);
+  const targets = moveableObjects.filter(o => o.visible);
+  const hits = raycaster.intersectObjects(targets, false);
+  return hits.length > 0 ? hits[0].object : null;
+}
+
+// ============================================================
+// Event handlers
+// ============================================================
+const canvas = renderer.domElement;
+
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 2 || e.button === 1) {
+    // Right or middle click: orbit/pan
+    if (e.button === 2) orbitState.panning = true;
+    else orbitState.dragging = true;
+    orbitState.lastX = e.clientX;
+    orbitState.lastY = e.clientY;
+    e.preventDefault();
+    return;
+  }
+
+  if (placeType) {
+    // Place object
+    const pt = getFloorPoint(e);
+    if (pt) {
+      pt.x = snap(pt.x);
+      pt.z = snap(pt.z);
+      placeObject(placeType, pt);
+    }
+    return;
+  }
+
+  const obj = getClickedObject(e);
+  if (obj) {
+    selectObject(obj);
+    if (mode === 'move' || mode === 'select') {
+      isDragging = true;
+      const pt = getFloorPoint(e);
+      if (pt) {
+        dragOffset.subVectors(obj.position, pt);
+        dragOffset.y = 0;
+      }
+    }
+  } else {
+    selectObject(null);
+    // Start orbit
+    orbitState.dragging = true;
+    orbitState.lastX = e.clientX;
+    orbitState.lastY = e.clientY;
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (orbitState.dragging) {
+    const dx = e.clientX - orbitState.lastX;
+    const dy = e.clientY - orbitState.lastY;
+    orbitState.theta -= dx * 0.005;
+    orbitState.phi = Math.max(0.1, Math.min(Math.PI/2 - 0.05, orbitState.phi - dy * 0.005));
+    orbitState.lastX = e.clientX;
+    orbitState.lastY = e.clientY;
+    updateOrbitCamera();
+    return;
+  }
+
+  if (orbitState.panning) {
+    const dx = e.clientX - orbitState.lastX;
+    const dy = e.clientY - orbitState.lastY;
+    const panSpeed = orbitState.radius * 0.002;
+    const right = new THREE.Vector3();
+    camera.getWorldDirection(right);
+    right.cross(camera.up).normalize();
+    const forward = new THREE.Vector3();
+    forward.copy(right).cross(new THREE.Vector3(0, 1, 0)).normalize();
+    orbitState.target.addScaledVector(right, -dx * panSpeed);
+    orbitState.target.addScaledVector(forward, dy * panSpeed);
+    orbitState.lastX = e.clientX;
+    orbitState.lastY = e.clientY;
+    updateOrbitCamera();
+    return;
+  }
+
+  if (isDragging && selectedObj && !selectedObj.userData.fixed) {
+    const pt = getFloorPoint(e);
+    if (pt) {
+      selectedObj.position.x = snap(pt.x + dragOffset.x);
+      selectedObj.position.z = snap(pt.z + dragOffset.z);
+      updatePropFields();
+    }
+    return;
+  }
+
+  if (placeType && ghostObj) {
+    const pt = getFloorPoint(e);
+    if (pt) {
+      ghostObj.position.x = snap(pt.x);
+      ghostObj.position.z = snap(pt.z);
+      const dims = getFurnitureDims(placeType);
+      if (dims) {
+        if (placeType === 'window') ghostObj.position.y = 4 + dims.h/2;
+        else ghostObj.position.y = dims.h/2;
+      }
+    }
+    return;
+  }
+
+  // Hover highlight
+  const obj = getClickedObject(e);
+  if (hoveredObj && hoveredObj !== selectedObj && hoveredObj !== obj) {
+    hoveredObj.material.emissive.setHex(0x000000);
+  }
+  if (obj && obj !== selectedObj) {
+    obj.material.emissive.setHex(0x111100);
+    const tooltip = document.getElementById('tooltip');
+    tooltip.textContent = obj.userData.name + (obj.userData.fixed ? ' (Fixed)' : '');
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX - 250) + 'px';
+    tooltip.style.top = (e.clientY - 30) + 'px';
+  } else {
+    document.getElementById('tooltip').style.display = 'none';
+  }
+  hoveredObj = obj;
+
+  // Status bar
+  const pt = getFloorPoint(e);
+  if (pt) {
+    document.getElementById('status-left').textContent =
+      `Cursor: ${pt.x.toFixed(1)}', ${pt.z.toFixed(1)}'  |  Mode: ${mode}${placeType ? ' | Placing: ' + placeType : ''}`;
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  isDragging = false;
+  orbitState.dragging = false;
+  orbitState.panning = false;
+});
+
+canvas.addEventListener('wheel', (e) => {
+  orbitState.radius = Math.max(5, Math.min(120, orbitState.radius + e.deltaY * 0.05));
+  updateOrbitCamera();
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+
+  if (e.key === 'Escape') {
+    placeType = null;
+    removeGhost();
+    selectObject(null);
+    document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active'));
+  }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedObj && !selectedObj.userData.fixed) {
+      scene.remove(selectedObj);
+      moveableObjects = moveableObjects.filter(o => o !== selectedObj);
+      selectObject(null);
+    }
+  }
+  if (e.key === 'r' && selectedObj && !selectedObj.userData.fixed) {
+    selectedObj.rotation.y += Math.PI / 4;
+    updatePropFields();
+  }
+  if (e.key === 'g') toggleGrid();
+  if (e.key === 's' && !e.metaKey && !e.ctrlKey) cycleSnap();
+});
+
+// ============================================================
+// Sidebar buttons
+// ============================================================
+document.querySelectorAll('[data-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    mode = btn.dataset.mode;
+    placeType = null;
+    removeGhost();
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+document.querySelectorAll('[data-place]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const type = btn.dataset.place;
+    if (placeType === type) {
+      placeType = null;
+      removeGhost();
+      btn.classList.remove('active');
+      return;
+    }
+    placeType = type;
+    mode = 'place';
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    createGhostForType(type);
+  });
+});
+
+// Property inputs
+function updatePropFields() {
+  if (!selectedObj) return;
+  document.getElementById('prop-x').value = selectedObj.position.x.toFixed(1);
+  document.getElementById('prop-z').value = selectedObj.position.z.toFixed(1);
+  document.getElementById('prop-rot').value = Math.round(THREE.MathUtils.radToDeg(selectedObj.rotation.y));
+}
+
+document.getElementById('prop-name').addEventListener('change', (e) => {
+  if (selectedObj) selectedObj.userData.name = e.target.value;
+});
+document.getElementById('prop-x').addEventListener('change', (e) => {
+  if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.x = parseFloat(e.target.value);
+});
+document.getElementById('prop-z').addEventListener('change', (e) => {
+  if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.z = parseFloat(e.target.value);
+});
+document.getElementById('prop-rot').addEventListener('change', (e) => {
+  if (selectedObj && !selectedObj.userData.fixed) selectedObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value));
+});
+document.getElementById('prop-color').addEventListener('input', (e) => {
+  if (selectedObj) {
+    selectedObj.material.color.set(e.target.value);
+    selectedObj.userData.originalColor = selectedObj.material.color.getHex();
+  }
+});
+
+document.getElementById('btn-delete').addEventListener('click', () => {
+  if (selectedObj && !selectedObj.userData.fixed) {
+    scene.remove(selectedObj);
+    moveableObjects = moveableObjects.filter(o => o !== selectedObj);
+    selectObject(null);
+  }
+});
+
+document.getElementById('btn-duplicate').addEventListener('click', () => {
+  if (!selectedObj || selectedObj.userData.fixed) return;
+  const clone = selectedObj.clone();
+  clone.material = selectedObj.material.clone();
+  clone.position.x += 2;
+  clone.position.z += 2;
+  clone.userData = { ...selectedObj.userData };
+  scene.add(clone);
+  moveableObjects.push(clone);
+  selectObject(clone);
+});
+
+document.getElementById('btn-lock').addEventListener('click', () => {
+  if (selectedObj) {
+    selectedObj.userData.fixed = !selectedObj.userData.fixed;
+    document.getElementById('btn-lock').textContent = selectedObj.userData.fixed ? 'Unlock' : 'Lock';
+  }
+});
+
+// Toolbar buttons
+document.getElementById('view-3d').addEventListener('click', () => {
+  orbitState.phi = 0.8; orbitState.theta = 0.8; orbitState.radius = 120;
+  orbitState.target.set(BLDG_W/2, 0, BLDG_D/2);
+  updateOrbitCamera();
+  setActiveView('view-3d');
+});
+
+document.getElementById('view-top').addEventListener('click', () => {
+  orbitState.phi = 0.01; orbitState.theta = 0; orbitState.radius = 100;
+  orbitState.target.set(BLDG_W/2, 0, BLDG_D/2);
+  updateOrbitCamera();
+  setActiveView('view-top');
+});
+
+document.getElementById('view-front').addEventListener('click', () => {
+  orbitState.phi = Math.PI/2 - 0.01; orbitState.theta = 0; orbitState.radius = 100;
+  orbitState.target.set(BLDG_W/2, 4, BLDG_D/2);
+  updateOrbitCamera();
+  setActiveView('view-front');
+});
+
+function setActiveView(id) {
+  ['view-3d', 'view-top', 'view-front'].forEach(v => document.getElementById(v).classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function toggleGrid() {
+  showGrid = !showGrid;
+  gridHelper.visible = showGrid;
+  document.getElementById('btn-grid').textContent = showGrid ? 'Grid: ON' : 'Grid: OFF';
+}
+
+function cycleSnap() {
+  const snaps = [0, 0.25, 0.5, 1, 2];
+  const idx = snaps.indexOf(snapSize);
+  snapSize = snaps[(idx + 1) % snaps.length];
+  document.getElementById('btn-snap').textContent = snapSize > 0 ? `Snap: ${snapSize}'` : 'Snap: OFF';
+}
+
+document.getElementById('btn-grid').addEventListener('click', toggleGrid);
+document.getElementById('btn-snap').addEventListener('click', cycleSnap);
+
+document.getElementById('btn-labels').addEventListener('click', () => {
+  showLabels = !showLabels;
+  labelSprites.forEach(s => s.visible = showLabels);
+  document.getElementById('btn-labels').textContent = showLabels ? 'Labels: ON' : 'Labels: OFF';
+});
+
+// Save / Load
+document.getElementById('btn-save').addEventListener('click', () => {
+  const data = moveableObjects.map(obj => ({
+    name: obj.userData.name,
+    type: obj.userData.furnitureType || obj.userData.type,
+    px: obj.position.x, py: obj.position.y, pz: obj.position.z,
+    ry: obj.rotation.y,
+    color: obj.material.color.getHex(),
+    w: obj.userData.width, h: obj.userData.height, d: obj.userData.depth,
+    fixed: obj.userData.fixed,
+  }));
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'trh-office-layout.json';
+  a.click();
+});
+
+document.getElementById('btn-load').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        // Remove existing moveable objects
+        moveableObjects.forEach(obj => scene.remove(obj));
+        moveableObjects = [];
+        // Recreate
+        data.forEach(item => {
+          const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+          const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(item.px, item.py, item.pz);
+          mesh.rotation.y = item.ry;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.userData = {
+            name: item.name, type: item.type, fixed: item.fixed,
+            width: item.w, height: item.h, depth: item.d,
+            originalColor: item.color, furnitureType: item.type,
+          };
+          scene.add(mesh);
+          moveableObjects.push(mesh);
+        });
+        selectObject(null);
+      } catch (err) {
+        alert('Failed to load layout: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (!confirm('Reset to default layout? All changes will be lost.')) return;
+  moveableObjects.forEach(obj => scene.remove(obj));
+  moveableObjects = [];
+  buildDefaultFurniture();
+  selectObject(null);
+});
+
+// ============================================================
+// Resize
+// ============================================================
+function onResize() {
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+}
+window.addEventListener('resize', onResize);
+
+// ============================================================
+// Animate
+// ============================================================
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+
+// ============================================================
+// Init
+// ============================================================
+buildStructure();
+createGrid();
+buildDefaultFurniture();
+onResize();
+animate();
+</script>
+</body>
+</html>
