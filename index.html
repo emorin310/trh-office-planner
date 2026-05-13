@@ -1004,9 +1004,16 @@ document.addEventListener('keydown', (e) => {
     }
   }
 
-  // R — Rotate with undo
+  // S — Select mode, M — Move mode
+  if (e.key === 's' && !cmd) { document.querySelector('[data-mode="select"]').click(); return; }
+  if (e.key === 'm' && !cmd) { document.querySelector('[data-mode="move"]').click(); return; }
+
+  // R — Rotate mode (no selection) or rotate object (with selection)
   if (e.key === 'r' && !cmd) {
     const all = getAllSelected();
+    if (!all.length && !(selectedObj && selectedObj.userData.isLabel)) {
+      document.querySelector('[data-mode="rotate"]').click(); return;
+    }
     if (all.length) {
       const grp = getGroup(all[0]);
       const angle = Math.PI / 4;
