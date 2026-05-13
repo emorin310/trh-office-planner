@@ -107,10 +107,14 @@
   #chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* Collapsed chat */
-  #chat-panel.collapsed { width: 40px; }
+  #chat-panel.collapsed { width: 40px; min-width: 40px; }
+  #chat-panel.collapsed #chat-header { justify-content: center; padding: 10px 4px; }
   #chat-panel.collapsed #chat-header h2,
   #chat-panel.collapsed #chat-messages,
   #chat-panel.collapsed #chat-input-bar { display: none; }
+
+  /* Multi-select highlight */
+  .multi-selected { outline: 2px solid #ffcc00; outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -223,6 +227,7 @@ const WALL_H = 9, WALL_T = 0.5, HALF_WALL_H = 4, WH_WALL_H = 16;
 const EDGE_FN = 'https://hbvadpewsqwkcfmciuco.supabase.co/functions/v1/office-planner-ai';
 
 let mode = 'select', placeType = null, selectedObj = null, hoveredObj = null;
+let multiSelected = []; // additional objects in multi-select
 let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true;
 let moveableObjects = [], labelSprites = [];
 const dragPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
@@ -651,8 +656,35 @@ function placeObject(type, position, nameOverride, rotDeg) {
 // ============================================================
 // Selection
 // ============================================================
+function clearMultiSelect() {
+  multiSelected.forEach(o => { if (o.userData && !o.userData.isGhost) o.material.emissive.setHex(0x000000); });
+  multiSelected = [];
+}
+
+function toggleMultiSelect(obj) {
+  if (!obj || obj.userData.fixed) return;
+  const idx = multiSelected.indexOf(obj);
+  if (idx >= 0) { multiSelected.splice(idx, 1); obj.material.emissive.setHex(0x000000); }
+  else if (obj === selectedObj) { /* already primary, ignore */ }
+  else { multiSelected.push(obj); obj.material.emissive.setHex(0x333300); }
+  updateSelectionStatus();
+}
+
+function getAllSelected() {
+  const arr = selectedObj ? [selectedObj, ...multiSelected] : [...multiSelected];
+  return arr.filter(o => o && !o.userData.fixed);
+}
+
+function updateSelectionStatus() {
+  const all = getAllSelected();
+  if (all.length > 1) document.getElementById('status-left').textContent = `${all.length} objects selected (Shift+click to add)`;
+  else if (all.length === 1) document.getElementById('status-left').textContent = `Selected: ${all[0].userData.name || 'object'}`;
+  else document.getElementById('status-left').textContent = 'Ready';
+}
+
 function selectObject(obj) {
   if (selectedObj && selectedObj.userData && !selectedObj.userData.isGhost) selectedObj.material.emissive.setHex(0x000000);
+  clearMultiSelect();
   selectedObj = obj;
   if (obj && !obj.userData.fixed) {
     obj.material.emissive.setHex(0x333300);
@@ -669,6 +701,7 @@ function selectObject(obj) {
     document.getElementById('selection-props').style.display = 'none';
     selectedObj = null;
   }
+  updateSelectionStatus();
 }
 
 // ============================================================
@@ -696,8 +729,9 @@ canvas.addEventListener('mousedown', (e) => {
   if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) selectObject(m); } return; }
   const obj = getClickedObject(e);
   if (obj) {
-    selectObject(obj);
-    if ((mode === 'move' || mode === 'select') && !obj.userData.fixed) { isDragging = true; const pt = getFloorPoint(e); if (pt) { dragOffset.subVectors(obj.position, pt); dragOffset.y = 0; } }
+    if (e.shiftKey) { toggleMultiSelect(obj); }
+    else { selectObject(obj); }
+    if ((mode === 'move' || mode === 'select') && !obj.userData.fixed && !e.shiftKey) { isDragging = true; const pt = getFloorPoint(e); if (pt) { dragOffset.subVectors(obj.position, pt); dragOffset.y = 0; } }
   } else { selectObject(null); orbitState.dragging = true; orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; }
 });
 
@@ -742,8 +776,8 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'Escape') { placeType = null; removeGhost(); selectObject(null); document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active')); }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObj && !selectedObj.userData.fixed) { scene.remove(selectedObj); moveableObjects = moveableObjects.filter(o => o !== selectedObj); selectObject(null); }
-  if (e.key === 'r' && selectedObj && !selectedObj.userData.fixed) { selectedObj.rotation.y += Math.PI/4; updatePropFields(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace')) { const all = getAllSelected(); if (all.length) { all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); }); selectObject(null); } }
+  if (e.key === 'r') { const all = getAllSelected(); if (all.length) { all.forEach(o => o.rotation.y += Math.PI/4); updatePropFields(); } }
 });
 
 // ============================================================
@@ -775,7 +809,7 @@ document.getElementById('prop-x').addEventListener('change', e => { if (selected
 document.getElementById('prop-z').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.z = parseFloat(e.target.value); });
 document.getElementById('prop-rot').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value)); });
 document.getElementById('prop-color').addEventListener('input', e => { if (selectedObj) { selectedObj.material.color.set(e.target.value); selectedObj.userData.originalColor = selectedObj.material.color.getHex(); }});
-document.getElementById('btn-delete').addEventListener('click', () => { if (selectedObj && !selectedObj.userData.fixed) { scene.remove(selectedObj); moveableObjects = moveableObjects.filter(o => o !== selectedObj); selectObject(null); }});
+document.getElementById('btn-delete').addEventListener('click', () => { const all = getAllSelected(); if (all.length) { all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); }); selectObject(null); } });
 document.getElementById('btn-duplicate').addEventListener('click', () => {
   if (!selectedObj || selectedObj.userData.fixed) return;
   const c = selectedObj.clone(); c.material = selectedObj.material.clone(); c.position.x += 2; c.position.z += 2;
