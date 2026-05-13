@@ -360,6 +360,42 @@ function addLabel(text, x, y, z, color) {
 
 function snap(val) { return snapSize > 0 ? Math.round(val / snapSize) * snapSize : val; }
 
+const WALL_SNAP_DIST = 1.5; // threshold in feet
+function wallSnap(obj, gx, gz) {
+  if (!obj || obj.userData.isLabel) return { x: gx, z: gz, rot: null };
+  const hw = (obj.userData.width || 1) / 2, hd = (obj.userData.depth || 1) / 2;
+  const L = gx - hw, R = gx + hw, T = gz + hd, B = gz - hd;
+  let sx = gx, sz = gz, bestDx = WALL_SNAP_DIST, bestDz = WALL_SNAP_DIST;
+  let snapWall = null, snapAxis = null;
+  scene.children.forEach(c => {
+    if (c === obj || !c.userData || !c.userData.width || c.userData.isLabel) return;
+    if (!c.userData.type) return;
+    const ow = (c.userData.width || 1) / 2, od = (c.userData.depth || 1) / 2;
+    const cx = c.position.x, cz = c.position.z;
+    const oL = cx - ow, oR = cx + ow, oT = cz + od, oB = cz - od;
+    const xPairs = [
+      { d: Math.abs(L - oR), adj: oR + hw },
+      { d: Math.abs(R - oL), adj: oL - hw },
+      { d: Math.abs(L - oL), adj: oL + hw },
+      { d: Math.abs(R - oR), adj: oR - hw },
+    ];
+    xPairs.forEach(p => { if (p.d < bestDx) { bestDx = p.d; sx = p.adj; snapWall = c; snapAxis = 'x'; }});
+    const zPairs = [
+      { d: Math.abs(B - oT), adj: oT + hd },
+      { d: Math.abs(T - oB), adj: oB - hd },
+      { d: Math.abs(B - oB), adj: oB + hd },
+      { d: Math.abs(T - oT), adj: oT - hd },
+    ];
+    zPairs.forEach(p => { if (p.d < bestDz) { bestDz = p.d; sz = p.adj; snapWall = c; snapAxis = 'z'; }});
+  });
+  // Auto-rotate to align with the snapped wall
+  let rot = null;
+  if (snapWall && (snapWall.userData.wallClass || snapWall.userData.type === 'structure')) {
+    rot = snapWall.rotation.y;
+  }
+  return { x: sx, z: sz, rot };
+}
+
 // ============================================================
 // Build fixed structure (RED outer walls only)
 // ============================================================
@@ -865,9 +901,12 @@ canvas.addEventListener('mousemove', (e) => {
   if (isDragging && selectedObj && !selectedObj.userData.fixed) {
     const pt = getFloorPoint(e);
     if (pt) {
-      const newX = snap(pt.x + dragOffset.x), newZ = snap(pt.z + dragOffset.z);
+      const gx = snap(pt.x + dragOffset.x), gz = snap(pt.z + dragOffset.z);
+      const ws = wallSnap(selectedObj, gx, gz);
+      const newX = ws.x, newZ = ws.z;
       const dx = newX - selectedObj.position.x, dz = newZ - selectedObj.position.z;
       selectedObj.position.x = newX; selectedObj.position.z = newZ;
+      if (ws.rot !== null && !selectedObj.userData.isLabel) selectedObj.rotation.y = ws.rot;
       // Move group members + labels together (only for non-label primary selection)
       if (!selectedObj.userData.isLabel) {
         const grp = getGroup(selectedObj);
