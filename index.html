@@ -158,6 +158,8 @@
         <div class="prop-row"><label>X (ft)</label><input id="prop-x" type="number" step="0.5"></div>
         <div class="prop-row"><label>Z (ft)</label><input id="prop-z" type="number" step="0.5"></div>
         <div class="prop-row"><label>Rot °</label><input id="prop-rot" type="number" step="15"></div>
+        <div class="prop-row" id="prop-w-row" style="display:none"><label>W (ft)</label><input id="prop-w" type="number" step="0.5" min="0.5"></div>
+        <div class="prop-row" id="prop-d-row" style="display:none"><label>D (ft)</label><input id="prop-d" type="number" step="0.5" min="0.5"></div>
         <div class="prop-row"><label>Color</label><input id="prop-color" type="color" value="#4488aa"></div>
         <div class="prop-actions">
           <button id="btn-duplicate">Duplicate</button>
@@ -181,9 +183,10 @@
       <button id="view-3d" class="active">3D View</button>
       <button id="view-top">Top View</button>
       <button id="view-office">Office View</button>
-      <button id="btn-grid">Grid: ON</button>
+      <button id="btn-grid">Grid: 0.5'</button>
       <button id="btn-snap">Snap: 0.5'</button>
       <button id="btn-labels">Labels: ON</button>
+      <button id="btn-label-size">Lbl Size: 1×</button>
       <button id="btn-orient">🧭 Reset Orient.</button>
       <button id="btn-refresh">🔄 Refresh</button>
       <button id="btn-save">💾 Save</button>
@@ -228,7 +231,7 @@ const EDGE_FN = 'https://hbvadpewsqwkcfmciuco.supabase.co/functions/v1/office-pl
 
 let mode = 'select', placeType = null, selectedObj = null, hoveredObj = null;
 let multiSelected = []; // additional objects in multi-select
-let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true;
+let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true, labelScale = 1;
 let moveableObjects = [], labelSprites = [];
 const dragPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
 const dragOffset = new THREE.Vector3();
@@ -335,8 +338,8 @@ function addLabel(text, x, y, z, color) {
   const tex = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
   sprite.position.set(x, y, z);
-  sprite.scale.set(10, 2.5, 1);
-  sprite.userData = { isLabel: true };
+  sprite.scale.set(10 * labelScale, 2.5 * labelScale, 1);
+  sprite.userData = { isLabel: true, baseScale: { x: 10, y: 2.5 } };
   scene.add(sprite);
   labelSprites.push(sprite);
 }
@@ -629,10 +632,14 @@ function buildCompass() {
 // ============================================================
 // Grid
 // ============================================================
-let gridHelper;
-function createGrid() {
-  gridHelper = new THREE.GridHelper(150, 300, 0x333355, 0x222244);
+let gridHelper, gridSize = 0.5;
+function createGrid(cellSize) {
+  if (gridHelper) scene.remove(gridHelper);
+  cellSize = cellSize || gridSize;
+  const divs = Math.round(150 / cellSize);
+  gridHelper = new THREE.GridHelper(150, divs, 0x333355, 0x222244);
   gridHelper.position.set(BLDG_W/2, 0.02, BLDG_D/2);
+  gridHelper.visible = showGrid;
   scene.add(gridHelper);
 }
 
@@ -732,9 +739,19 @@ function selectObject(obj) {
     document.getElementById('prop-rot').value = Math.round(THREE.MathUtils.radToDeg(obj.rotation.y));
     document.getElementById('prop-color').value = '#' + obj.material.color.getHexString();
     document.getElementById('btn-lock').textContent = obj.userData.fixed ? 'Unlock' : 'Lock';
+    // Show W/D fields for walls/structures
+    const isResizable = obj.userData.wallClass || obj.userData.type === 'inner' || obj.userData.type === 'existing' || obj.userData.type === 'furniture';
+    document.getElementById('prop-w-row').style.display = isResizable ? 'flex' : 'none';
+    document.getElementById('prop-d-row').style.display = isResizable ? 'flex' : 'none';
+    if (isResizable) {
+      document.getElementById('prop-w').value = (obj.userData.width || 1).toFixed(1);
+      document.getElementById('prop-d').value = (obj.userData.depth || 1).toFixed(1);
+    }
   } else {
     document.getElementById('no-selection').style.display = 'block';
     document.getElementById('selection-props').style.display = 'none';
+    document.getElementById('prop-w-row').style.display = 'none';
+    document.getElementById('prop-d-row').style.display = 'none';
     selectedObj = null;
   }
   updateSelectionStatus();
@@ -793,8 +810,8 @@ canvas.addEventListener('mousemove', (e) => {
     const pt = getFloorPoint(e); if (pt) { ghostObj.position.x = snap(pt.x); ghostObj.position.z = snap(pt.z); const d = getFurnitureDims(placeType); if (d) ghostObj.position.y = placeType==='window' ? 4+d.h/2 : d.h/2; } return;
   }
   const obj = getClickedObject(e);
-  if (hoveredObj && hoveredObj !== selectedObj && hoveredObj !== obj) hoveredObj.material.emissive.setHex(0x000000);
-  if (obj && obj !== selectedObj) {
+  if (hoveredObj && hoveredObj !== selectedObj && hoveredObj !== obj && !multiSelected.includes(hoveredObj)) hoveredObj.material.emissive.setHex(0x000000);
+  if (obj && obj !== selectedObj && !multiSelected.includes(obj)) {
     obj.material.emissive.setHex(0x111100);
     const tt = document.getElementById('tooltip');
     tt.textContent = obj.userData.name + (obj.userData.fixed ? ' (Locked)' : '') + (obj.userData.wallClass ? ` [${obj.userData.wallClass}]` : '');
@@ -845,6 +862,18 @@ document.getElementById('prop-x').addEventListener('change', e => { if (selected
 document.getElementById('prop-z').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.z = parseFloat(e.target.value); });
 document.getElementById('prop-rot').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value)); });
 document.getElementById('prop-color').addEventListener('input', e => { if (selectedObj) { selectedObj.material.color.set(e.target.value); selectedObj.userData.originalColor = selectedObj.material.color.getHex(); }});
+
+function resizeObject(obj, newW, newD) {
+  if (!obj) return;
+  const h = obj.userData.height || WALL_H;
+  obj.geometry.dispose();
+  obj.geometry = new THREE.BoxGeometry(newW, h, newD);
+  obj.userData.width = newW;
+  obj.userData.depth = newD;
+  obj.position.y = h / 2; // re-center vertically
+}
+document.getElementById('prop-w').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, parseFloat(e.target.value), selectedObj.userData.depth); }});
+document.getElementById('prop-d').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, selectedObj.userData.width, parseFloat(e.target.value)); }});
 document.getElementById('btn-delete').addEventListener('click', () => { const all = getAllSelected(); if (all.length) { all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); }); selectObject(null); } });
 document.getElementById('btn-duplicate').addEventListener('click', () => {
   if (!selectedObj || selectedObj.userData.fixed) return;
@@ -865,9 +894,25 @@ document.getElementById('btn-orient').addEventListener('click', () => {
   ['view-3d','view-top','view-office'].forEach(v => document.getElementById(v).classList.remove('active'));
 });
 document.getElementById('btn-refresh').addEventListener('click', () => { renderer.render(scene, camera); onResize(); addChatMsg('system', '✓ Scene refreshed'); });
-document.getElementById('btn-grid').addEventListener('click', () => { showGrid = !showGrid; gridHelper.visible = showGrid; document.getElementById('btn-grid').textContent = showGrid ? 'Grid: ON' : 'Grid: OFF'; });
-document.getElementById('btn-snap').addEventListener('click', () => { const s = [0,0.25,0.5,1,2]; snapSize = s[(s.indexOf(snapSize)+1)%s.length]; document.getElementById('btn-snap').textContent = snapSize > 0 ? `Snap: ${snapSize}'` : 'Snap: OFF'; });
+document.getElementById('btn-grid').addEventListener('click', (e) => {
+  if (e.shiftKey) { // Shift+click cycles grid cell size
+    const sizes = [0.25, 0.5, 1, 2, 5]; gridSize = sizes[(sizes.indexOf(gridSize)+1)%sizes.length];
+    snapSize = gridSize; // snap follows grid
+    createGrid(gridSize);
+    document.getElementById('btn-grid').textContent = `Grid: ${gridSize}'`;
+    document.getElementById('btn-snap').textContent = `Snap: ${snapSize}'`;
+  } else {
+    showGrid = !showGrid; gridHelper.visible = showGrid;
+    document.getElementById('btn-grid').textContent = showGrid ? `Grid: ${gridSize}'` : 'Grid: OFF';
+  }
+});
+document.getElementById('btn-snap').addEventListener('click', () => { const s = [0,0.25,0.5,1,2,5]; snapSize = s[(s.indexOf(snapSize)+1)%s.length]; document.getElementById('btn-snap').textContent = snapSize > 0 ? `Snap: ${snapSize}'` : 'Snap: OFF'; });
 document.getElementById('btn-labels').addEventListener('click', () => { showLabels = !showLabels; labelSprites.forEach(s => s.visible = showLabels); document.getElementById('btn-labels').textContent = showLabels ? 'Labels: ON' : 'Labels: OFF'; });
+document.getElementById('btn-label-size').addEventListener('click', () => {
+  const sizes = [0.5, 1, 1.5, 2, 3]; labelScale = sizes[(sizes.indexOf(labelScale)+1)%sizes.length];
+  labelSprites.forEach(s => { const b = s.userData.baseScale || {x:10,y:2.5}; s.scale.set(b.x*labelScale, b.y*labelScale, 1); });
+  document.getElementById('btn-label-size').textContent = `Lbl Size: ${labelScale}×`;
+});
 
 // Save/Load
 document.getElementById('btn-save').addEventListener('click', () => {
