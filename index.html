@@ -194,6 +194,7 @@
       <button id="btn-refresh">🔄 Refresh</button>
       <button id="btn-save">💾 Save</button>
       <button id="btn-load">📂 Load</button>
+      <button id="btn-publish" style="background:#2a6e3f;border-color:#3a8e5f;color:#fff">📤 Publish</button>
       <button id="btn-reset">↺ Reset</button>
     </div>
     <div id="tooltip"></div>
@@ -231,6 +232,7 @@ const OFF_X = (BLDG_W - OFFICE_W) / 2;   // ~30, centered
 const OFF_Z = BLDG_D - OFFICE_D - 12;     // ~60, leaves 12' for Kitchen/WCs above
 const WALL_H = 9, WALL_T = 0.5, HALF_WALL_H = 4, WH_WALL_H = 16;
 const EDGE_FN = 'https://hbvadpewsqwkcfmciuco.supabase.co/functions/v1/office-planner-ai';
+const LAYOUT_FN = 'https://hbvadpewsqwkcfmciuco.supabase.co/functions/v1/office-planner-layout';
 
 let mode = 'select', placeType = null, selectedObj = null, hoveredObj = null;
 let multiSelected = []; // additional objects in multi-select
@@ -351,7 +353,7 @@ function addLabel(text, x, y, z, color) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
   sprite.position.set(x, y, z);
   sprite.scale.set(10 * labelScale, 2.5 * labelScale, 1);
-  sprite.userData = { isLabel: true, baseScale: { x: 10, y: 2.5 } };
+  sprite.userData = { isLabel: true, baseScale: { x: 10, y: 2.5 }, labelText: text, labelColor: color };
   scene.add(sprite);
   labelSprites.push(sprite);
 }
@@ -1060,7 +1062,7 @@ document.getElementById('btn-load').addEventListener('click', () => {
     data.forEach(item => { const geo = new THREE.BoxGeometry(item.w, item.h, item.d); const mat = new THREE.MeshStandardMaterial({color:item.color, roughness:0.5}); const m = new THREE.Mesh(geo, mat); m.position.set(item.px,item.py,item.pz); m.rotation.y = item.ry; m.castShadow=true; m.receiveShadow=true; m.userData = {name:item.name,type:item.type,fixed:item.fixed,width:item.w,height:item.h,depth:item.d,originalColor:item.color,furnitureType:item.type,wallClass:item.wallClass}; scene.add(m); moveableObjects.push(m); });
     selectObject(null); } catch(err) { alert('Load failed: '+err.message); } }; r.readAsText(f); }; inp.click();
 });
-document.getElementById('btn-reset').addEventListener('click', () => { if (!confirm('Reset to default layout?')) return; moveableObjects.forEach(o => scene.remove(o)); moveableObjects = []; buildExistingStructures(); buildDefaultFurniture(); selectObject(null); });
+document.getElementById('btn-reset').addEventListener('click', () => { if (!confirm('Reset to default layout?')) return; moveableObjects.forEach(o => scene.remove(o)); moveableObjects = []; labelSprites.forEach(l => scene.remove(l)); labelSprites = []; groups = []; buildExistingStructures(); buildDefaultFurniture(); selectObject(null); });
 
 // ============================================================
 // AI Chat
@@ -1237,15 +1239,124 @@ window.addEventListener('resize', onResize);
 function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
 
 // ============================================================
+// Publish / Load from Supabase
+// ============================================================
+function serializeLayout() {
+  const objs = moveableObjects.map(o => ({
+    name: o.userData.name, type: o.userData.type, furnitureType: o.userData.furnitureType,
+    px: +o.position.x.toFixed(3), py: +o.position.y.toFixed(3), pz: +o.position.z.toFixed(3),
+    ry: +o.rotation.y.toFixed(4), color: o.material.color.getHex(),
+    w: o.userData.width, h: o.userData.height, d: o.userData.depth,
+    fixed: o.userData.fixed || false, wallClass: o.userData.wallClass || null
+  }));
+  const lbls = labelSprites.map(l => ({
+    text: l.userData.labelText || '', x: +l.position.x.toFixed(3), y: +l.position.y.toFixed(3), z: +l.position.z.toFixed(3),
+    color: l.userData.labelColor || 0x44cc66
+  }));
+  const grps = groups.map(g => ({
+    id: g.id,
+    memberNames: g.members.map(m => m.userData.name),
+    labelIndices: g.labels.map(l => labelSprites.indexOf(l)).filter(i => i >= 0)
+  }));
+  return { objects: objs, labels: lbls, groups: grps };
+}
+
+function deserializeLayout(data) {
+  // Clear existing moveable objects and labels
+  moveableObjects.forEach(o => scene.remove(o));
+  moveableObjects = [];
+  labelSprites.forEach(l => scene.remove(l));
+  labelSprites = [];
+  groups = [];
+
+  // Rebuild objects
+  (data.objects || []).forEach(item => {
+    const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+    const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
+    if (item.wallClass === 'existing') { mat.roughness = 0.3; mat.metalness = 0.1; }
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(item.px, item.py, item.pz);
+    m.rotation.y = item.ry || 0;
+    m.castShadow = true; m.receiveShadow = true;
+    m.userData = {
+      name: item.name, type: item.type, furnitureType: item.furnitureType || item.type,
+      fixed: item.fixed, width: item.w, height: item.h, depth: item.d,
+      originalColor: item.color, wallClass: item.wallClass
+    };
+    scene.add(m); moveableObjects.push(m);
+  });
+
+  // Rebuild labels
+  (data.labels || []).forEach(lbl => {
+    if (!lbl.text) return;
+    addLabel(lbl.text, lbl.x, lbl.y, lbl.z, lbl.color || 0x44cc66);
+  });
+
+  // Rebuild groups
+  (data.groups || []).forEach(g => {
+    const members = g.memberNames.map(n => moveableObjects.find(o => o.userData.name === n)).filter(Boolean);
+    const labels = (g.labelIndices || []).map(i => labelSprites[i]).filter(Boolean);
+    if (members.length >= 2) {
+      groups.push({ id: g.id, members, labels });
+      nextGroupId = Math.max(nextGroupId, g.id + 1);
+    }
+  });
+
+  selectObject(null);
+}
+
+async function publishLayout() {
+  const note = prompt('Publish note (optional):') || '';
+  const layout = serializeLayout();
+  try {
+    const res = await fetch(LAYOUT_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout_json: layout, published_by: 'planner-ui', note })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const result = await res.json();
+    addChatMsg('system', `✓ Layout published (v${result.id || '?'}). Others will see this version.`);
+  } catch (err) {
+    addChatMsg('error', 'Publish failed: ' + err.message);
+  }
+}
+
+async function loadPublishedLayout() {
+  try {
+    const res = await fetch(LAYOUT_FN);
+    if (!res.ok) { console.log('No published layout found, using defaults'); return false; }
+    const data = await res.json();
+    if (data && data.layout_json) {
+      deserializeLayout(data.layout_json);
+      console.log(`Loaded published layout v${data.id} from ${data.published_at}`);
+      return true;
+    }
+  } catch (err) { console.warn('Failed to load published layout:', err); }
+  return false;
+}
+
+document.getElementById('btn-publish').addEventListener('click', publishLayout);
+
+// ============================================================
 // Init
 // ============================================================
 buildStructure();
-buildExistingStructures();
 createGrid();
-buildDefaultFurniture();
 buildCompass();
 onResize();
 animate();
+
+// Try loading published layout first; fall back to defaults
+loadPublishedLayout().then(loaded => {
+  if (loaded) {
+    addChatMsg('system', '✓ Loaded published layout');
+  } else {
+    buildExistingStructures();
+    buildDefaultFurniture();
+    addChatMsg('system', 'No published layout found — loaded defaults');
+  }
+});
 </script>
 </body>
 </html>
