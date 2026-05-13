@@ -195,6 +195,7 @@
       <button id="btn-grid">Grid: ON</button>
       <button id="btn-snap">Snap: 0.5'</button>
       <button id="btn-labels">Labels: ON</button>
+      <button id="btn-refresh">🔄 Refresh</button>
       <button id="btn-save">💾 Save</button>
       <button id="btn-load">📂 Load</button>
       <button id="btn-reset">↺ Reset</button>
@@ -723,6 +724,7 @@ document.getElementById('view-top').addEventListener('click', () => { orbitState
 document.getElementById('view-office').addEventListener('click', () => { orbitState.phi=0.6; orbitState.theta=0.6; orbitState.radius=50; orbitState.target.set(OFF_X+OFFICE_W/2,0,OFF_Z+OFFICE_D/2); updateOrbitCamera(); setView('view-office'); });
 function setView(id) { ['view-3d','view-top','view-office'].forEach(v => document.getElementById(v).classList.remove('active')); document.getElementById(id).classList.add('active'); }
 
+document.getElementById('btn-refresh').addEventListener('click', () => { renderer.render(scene, camera); onResize(); addChatMsg('system', '✓ Scene refreshed'); });
 document.getElementById('btn-grid').addEventListener('click', () => { showGrid = !showGrid; gridHelper.visible = showGrid; document.getElementById('btn-grid').textContent = showGrid ? 'Grid: ON' : 'Grid: OFF'; });
 document.getElementById('btn-snap').addEventListener('click', () => { const s = [0,0.25,0.5,1,2]; snapSize = s[(s.indexOf(snapSize)+1)%s.length]; document.getElementById('btn-snap').textContent = snapSize > 0 ? `Snap: ${snapSize}'` : 'Snap: OFF'; });
 document.getElementById('btn-labels').addEventListener('click', () => { showLabels = !showLabels; labelSprites.forEach(s => s.visible = showLabels); document.getElementById('btn-labels').textContent = showLabels ? 'Labels: ON' : 'Labels: OFF'; });
@@ -785,6 +787,7 @@ async function sendChat() {
   const msg = chatInput.value.trim();
   if (!msg || !apiKey) return;
   chatInput.value = '';
+  chatSend.disabled = true;
   addChatMsg('user', msg);
   const thinking = addChatMsg('system', 'Thinking...');
 
@@ -794,61 +797,94 @@ async function sendChat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg, sceneState: getSceneState(), apiKey }),
     });
-    const data = await res.json();
+    const raw = await res.text();
     thinking.remove();
 
-    if (data.error) { addChatMsg('error', 'Error: ' + data.error); return; }
+    let data;
+    try { data = JSON.parse(raw); } catch {
+      // Try extracting JSON from response
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) { try { data = JSON.parse(m[0]); } catch { data = { error: 'Could not parse response' }; } }
+      else { data = { error: 'Invalid response from server' }; }
+    }
+
+    if (data.error) { addChatMsg('error', 'Error: ' + data.error); chatSend.disabled = false; return; }
     if (data.message) addChatMsg('ai', data.message);
-    if (data.commands && data.commands.length > 0) executeCommands(data.commands);
+
+    const cmds = data.commands;
+    if (cmds && Array.isArray(cmds) && cmds.length > 0) {
+      addChatMsg('system', `Executing ${cmds.length} command(s)...`);
+      executeCommands(cmds);
+    } else {
+      addChatMsg('system', 'No scene changes returned. Try being more specific (e.g. "add a desk at x=55, z=80")');
+    }
   } catch (err) {
     thinking.remove();
     addChatMsg('error', 'Request failed: ' + err.message);
   }
+  chatSend.disabled = false;
 }
 
 function findObjectByName(name) {
+  if (!name) return null;
   const lower = name.toLowerCase();
-  return moveableObjects.find(o => o.userData.name.toLowerCase() === lower) || moveableObjects.find(o => o.userData.name.toLowerCase().includes(lower));
+  // Exact match first
+  let found = moveableObjects.find(o => o.userData.name.toLowerCase() === lower);
+  if (found) return found;
+  // Partial match
+  found = moveableObjects.find(o => o.userData.name.toLowerCase().includes(lower));
+  if (found) return found;
+  // Reverse partial (name includes search term)
+  found = moveableObjects.find(o => lower.includes(o.userData.name.toLowerCase()));
+  return found || null;
 }
 
 function executeCommands(commands) {
-  let count = 0;
-  commands.forEach(cmd => {
+  let count = 0, errors = [];
+  commands.forEach((cmd, i) => {
     try {
       switch (cmd.action) {
         case 'add': {
-          const m = placeObject(cmd.type, { x: cmd.x, z: cmd.z }, cmd.name, cmd.rotation);
-          if (m) count++;
+          if (!cmd.type) { errors.push(`Cmd ${i}: missing type`); break; }
+          const m = placeObject(cmd.type, { x: cmd.x || 50, z: cmd.z || 80 }, cmd.name, cmd.rotation);
+          if (m) { count++; console.log(`[AI] Added ${cmd.name || cmd.type} at (${cmd.x}, ${cmd.z})`); }
+          else errors.push(`Cmd ${i}: failed to create ${cmd.type}`);
           break;
         }
         case 'move': {
           const obj = findObjectByName(cmd.name);
-          if (obj && !obj.userData.fixed) { obj.position.x = cmd.x; obj.position.z = cmd.z; count++; }
+          if (obj && !obj.userData.fixed) { obj.position.x = cmd.x; obj.position.z = cmd.z; count++; console.log(`[AI] Moved ${cmd.name} to (${cmd.x}, ${cmd.z})`); }
+          else errors.push(`Cmd ${i}: "${cmd.name}" not found or locked`);
           break;
         }
         case 'remove': {
           const obj = findObjectByName(cmd.name);
-          if (obj && !obj.userData.fixed) { scene.remove(obj); moveableObjects = moveableObjects.filter(o => o !== obj); count++; }
+          if (obj && !obj.userData.fixed) { scene.remove(obj); moveableObjects = moveableObjects.filter(o => o !== obj); count++; console.log(`[AI] Removed ${cmd.name}`); }
+          else errors.push(`Cmd ${i}: "${cmd.name}" not found or locked`);
           break;
         }
         case 'rotate': {
           const obj = findObjectByName(cmd.name);
           if (obj && !obj.userData.fixed) { obj.rotation.y = THREE.MathUtils.degToRad(cmd.degrees); count++; }
+          else errors.push(`Cmd ${i}: "${cmd.name}" not found or locked`);
           break;
         }
         case 'color': {
           const obj = findObjectByName(cmd.name);
           if (obj) { obj.material.color.set(cmd.color); count++; }
+          else errors.push(`Cmd ${i}: "${cmd.name}" not found`);
           break;
         }
         case 'duplicate': {
           const obj = findObjectByName(cmd.name);
           if (obj) { const c = obj.clone(); c.material = obj.material.clone(); c.position.x = cmd.x; c.position.z = cmd.z; c.userData = {...obj.userData, name: cmd.newName || obj.userData.name + ' copy'}; scene.add(c); moveableObjects.push(c); count++; }
+          else errors.push(`Cmd ${i}: "${cmd.name}" not found`);
           break;
         }
         case 'lock': {
           const obj = findObjectByName(cmd.name);
           if (obj) { obj.userData.fixed = true; count++; }
+          else errors.push(`Cmd ${i}: "${cmd.name}" not found`);
           break;
         }
         case 'unlock': {
@@ -864,10 +900,13 @@ function executeCommands(commands) {
           break;
         }
       }
-    } catch (err) { console.warn('Command failed:', cmd, err); }
+    } catch (err) { errors.push(`Cmd ${i}: ${err.message}`); console.warn('Command failed:', cmd, err); }
   });
   if (count > 0) addChatMsg('system', `✓ Executed ${count} change${count>1?'s':''}`);
+  if (errors.length > 0) addChatMsg('error', 'Issues: ' + errors.join('; '));
   selectObject(null);
+  // Force renderer refresh
+  renderer.render(scene, camera);
 }
 
 // ============================================================
