@@ -400,10 +400,12 @@ function buildStructure() {
   addLabel('Building Envelope\n102\' × 96\'', BLDG_W/2, 12, BLDG_D/2 - 20, 0x555555);
   addLabel('Warehouse', BLDG_W/2 - 10, 5, 30, 0x555566);
 
-  // ==== STRUCTURAL POSTS (fixed/red) ====
+  // ==== STRUCTURAL POSTS (fixed/red) — all at 30'7" from east wall ====
+  // Post 1: 29'2" from south wall, Post 2: 38'3" from north wall, Post 3: 8'3" from north wall
   const ox = OFF_X, oz = OFF_Z;
-  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 22, y: 0, z: oz + 20.25 }, 'Pole 1 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
-  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 10, y: 0, z: oz + 20.25 }, 'Pole 2 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: 29.167, y: 0, z: 71.417 }, 'Post 1 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: 57.75, y: 0, z: 71.417 }, 'Post 2 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: 87.75, y: 0, z: 71.417 }, 'Post 3 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
 
   // Corridor floor (between Off 1-3 row and lower section)
   const cFloor = new THREE.Mesh(new THREE.PlaneGeometry(OFFICE_W - 1, 3), new THREE.MeshStandardMaterial({ color: 0x333355, roughness: 0.8 }));
