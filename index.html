@@ -823,7 +823,7 @@ let preDragPositions = []; // for undo: [{obj, x, z},...] saved at mousedown
 
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2 || e.button === 1) {
-    if (e.button === 2) orbitState.panning = true; else orbitState.dragging = true;
+    if (e.button === 1) orbitState.panning = true; else orbitState.dragging = true;
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; e.preventDefault(); return;
   }
   if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); } } return; }
