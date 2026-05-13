@@ -221,8 +221,8 @@
 
 const BLDG_W = 96, BLDG_D = 102;
 const OFFICE_W = 36.083, OFFICE_D = 29.75;
-const OFF_X = BLDG_W - OFFICE_W - 10;
-const OFF_Z = BLDG_D - OFFICE_D - 2;
+const OFF_X = (BLDG_W - OFFICE_W) / 2;   // ~30, centered
+const OFF_Z = BLDG_D - OFFICE_D - 12;     // ~60, leaves 12' for Kitchen/WCs above
 const WALL_H = 9, WALL_T = 0.5, HALF_WALL_H = 4, WH_WALL_H = 16;
 const EDGE_FN = 'https://hbvadpewsqwkcfmciuco.supabase.co/functions/v1/office-planner-ai';
 
@@ -385,14 +385,14 @@ function buildStructure() {
 
   // ==== STRUCTURAL POSTS (fixed/red) ====
   const ox = OFF_X, oz = OFF_Z;
-  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 24, y: 0, z: oz + 15 }, 'Post 1 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
-  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 10, y: 0, z: oz + 15 }, 'Post 2 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 22, y: 0, z: oz + 20.25 }, 'Pole 1 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
+  createBox(0.8, WALL_H, 0.8, mats.post, { x: ox + 10, y: 0, z: oz + 20.25 }, 'Pole 2 (Structural)', { fixed: true, type: 'structure', wallClass: 'outer' });
 
-  // Corridor floor
+  // Corridor floor (between Off 1-3 row and lower section)
   const cFloor = new THREE.Mesh(new THREE.PlaneGeometry(OFFICE_W - 1, 3), new THREE.MeshStandardMaterial({ color: 0x333355, roughness: 0.8 }));
-  cFloor.rotation.x = -Math.PI / 2; cFloor.position.set(ox + OFFICE_W/2, 0.02, oz + 15);
+  cFloor.rotation.x = -Math.PI / 2; cFloor.position.set(ox + OFFICE_W/2, 0.02, oz + 20.25);
   cFloor.receiveShadow = true; cFloor.userData = { name: 'Corridor', type: 'floor', fixed: true }; scene.add(cFloor);
-  addLabel('Corridor (3\')', ox + OFFICE_W/2, 0.5, oz + 15, 0x666666);
+  addLabel('Corridor (3\')', ox + OFFICE_W/2, 0.5, oz + 20.25, 0x666666);
 }
 
 // ============================================================
@@ -401,46 +401,58 @@ function buildStructure() {
 function buildExistingStructures() {
   const ew = mats.existingWall;
   const ox = OFF_X, oz = OFF_Z;
-  const onz = oz + OFFICE_D;
+  const onz = oz + OFFICE_D; // office north wall z
 
   // Office perimeter (existing demising walls)
   createBox(OFFICE_W, WALL_H, WALL_T, ew, { x: ox + OFFICE_W/2, y: 0, z: oz }, 'Office South Wall', { type: 'existing', wallClass: 'existing' });
   createBox(OFFICE_W, WALL_H, WALL_T, ew, { x: ox + OFFICE_W/2, y: 0, z: onz }, 'Office North Wall', { type: 'existing', wallClass: 'existing' });
   createBox(WALL_T, WALL_H, OFFICE_D, ew, { x: ox, y: 0, z: oz + OFFICE_D/2 }, 'Office West Wall', { type: 'existing', wallClass: 'existing' });
   createBox(WALL_T, WALL_H, OFFICE_D, ew, { x: ox + OFFICE_W, y: 0, z: oz + OFFICE_D/2 }, 'Office East Wall', { type: 'existing', wallClass: 'existing' });
-  addLabel('Office Build-Out\n36\'1" × 29\'9"', ox + OFFICE_W/2, 6, oz + OFFICE_D/2, 0x4488cc);
+  addLabel('OFFICE BUILD-OUT — ~1,075 sq ft', ox + OFFICE_W/2, 6, onz + 1.5, 0x4488cc);
 
-  // Kitchen (~17'x8')
-  createBox(17, WALL_H, WALL_T, ew, { x: ox + 8.5, y: 0, z: onz - 8 }, 'Kitchen South Wall', { type: 'existing', wallClass: 'existing' });
-  createBox(WALL_T, WALL_H, 8, ew, { x: ox + 17, y: 0, z: onz - 4 }, 'Kitchen East Wall', { type: 'existing', wallClass: 'existing' });
-  addLabel('Kitchen\n~17\'×8\'', ox + 8.5, 3, onz - 4, 0x4488cc);
+  // ---- Kitchen & WCs (OUTSIDE office, between office north wall and building north wall) ----
+  // Kitchen (~17'×8') — left on screen = high X
+  const kx = ox + OFFICE_W - 17; // kitchen starts at east end of office width
+  createBox(17, WALL_H, WALL_T, ew, { x: kx + 8.5, y: 0, z: onz + 8 }, 'Kitchen North Wall', { type: 'existing', wallClass: 'existing' });
+  createBox(WALL_T, WALL_H, 8, ew, { x: kx, y: 0, z: onz + 4 }, 'Kitchen West Wall', { type: 'existing', wallClass: 'existing' });
+  addLabel('Kitchen\n~17\'×8\' · 136 sf', kx + 8.5, 3, onz + 4, 0x4488cc);
 
-  // Men's WC
-  createBox(8, WALL_H, WALL_T, ew, { x: ox + 21, y: 0, z: onz - 10 }, 'Mens WC South Wall', { type: 'existing', wallClass: 'existing' });
-  createBox(WALL_T, WALL_H, 10, ew, { x: ox + 17, y: 0, z: onz - 5 }, 'Mens WC West Wall', { type: 'existing', wallClass: 'existing' });
-  createBox(WALL_T, WALL_H, 10, ew, { x: ox + 25, y: 0, z: onz - 5 }, 'Mens WC East Wall', { type: 'existing', wallClass: 'existing' });
-  addLabel("Men's WC\n8'×10'", ox + 21, 3, onz - 5, 0x4488cc);
+  // Men's WC (8'×10') — middle
+  const mwx = kx - 8;
+  createBox(8, WALL_H, WALL_T, ew, { x: mwx + 4, y: 0, z: onz + 10 }, 'Mens WC North Wall', { type: 'existing', wallClass: 'existing' });
+  createBox(WALL_T, WALL_H, 10, ew, { x: mwx, y: 0, z: onz + 5 }, 'Mens WC West Wall', { type: 'existing', wallClass: 'existing' });
+  createBox(WALL_T, WALL_H, 10, ew, { x: mwx + 8, y: 0, z: onz + 5 }, 'Mens WC East Wall', { type: 'existing', wallClass: 'existing' });
+  addLabel("Mens\nW/C\n8'×10'", mwx + 4, 3, onz + 5, 0x4488cc);
 
-  // Women's WC
-  createBox(8, WALL_H, WALL_T, ew, { x: ox + 29, y: 0, z: onz - 10 }, 'Womens WC South Wall', { type: 'existing', wallClass: 'existing' });
-  createBox(WALL_T, WALL_H, 10, ew, { x: ox + 33, y: 0, z: onz - 5 }, 'Womens WC East Wall', { type: 'existing', wallClass: 'existing' });
-  addLabel("Women's WC\n8'×10'", ox + 29, 3, onz - 5, 0x4488cc);
+  // Women's WC (8'×10') — right on screen = low X
+  const wwx = mwx - 8;
+  createBox(8, WALL_H, WALL_T, ew, { x: wwx + 4, y: 0, z: onz + 10 }, 'Womens WC North Wall', { type: 'existing', wallClass: 'existing' });
+  createBox(WALL_T, WALL_H, 10, ew, { x: wwx, y: 0, z: onz + 5 }, 'Womens WC West Wall', { type: 'existing', wallClass: 'existing' });
+  addLabel("Womens\nW/C\n8'×10'", wwx + 4, 3, onz + 5, 0x4488cc);
 
-  // Pvt Office A (8.8'×11')
-  const paX = ox + OFFICE_W + 1, paZ = oz + OFFICE_D - 20;
+  // ---- Pvt Offices (west/right of office on screen) ----
+  // Pvt Office B (7.5'×11') — upper right
+  const pbX = ox - 8.5, pbZ = onz - 11;
+  createBox(7.5, WALL_H, WALL_T, ew, { x: pbX + 3.75, y: 0, z: pbZ }, 'Pvt Office B South', { type: 'existing', wallClass: 'existing' });
+  createBox(7.5, WALL_H, WALL_T, ew, { x: pbX + 3.75, y: 0, z: pbZ + 11 }, 'Pvt Office B North', { type: 'existing', wallClass: 'existing' });
+  createBox(WALL_T, WALL_H, 11, ew, { x: pbX, y: 0, z: pbZ + 5.5 }, 'Pvt Office B West', { type: 'existing', wallClass: 'existing' });
+  addLabel("Pvt Office B\n7.5'×11' (existing)", pbX + 3.75, 3, pbZ + 5.5, 0x4488cc);
+
+  // Admin ×4 (existing)
+  addLabel("Admin ×4\n(existing)", pbX + 3.75, 3, pbZ - 3, 0x4488cc);
+
+  // Pvt Office A (8.8'×11') — mid right
+  const paX = ox - 9.8, paZ = pbZ - 14;
   createBox(8.8, WALL_H, WALL_T, ew, { x: paX + 4.4, y: 0, z: paZ }, 'Pvt Office A South', { type: 'existing', wallClass: 'existing' });
   createBox(8.8, WALL_H, WALL_T, ew, { x: paX + 4.4, y: 0, z: paZ + 11 }, 'Pvt Office A North', { type: 'existing', wallClass: 'existing' });
   createBox(WALL_T, WALL_H, 11, ew, { x: paX, y: 0, z: paZ + 5.5 }, 'Pvt Office A West', { type: 'existing', wallClass: 'existing' });
-  addLabel("Pvt Office A\n8.8'×11'", paX + 4.4, 3, paZ + 5.5, 0x4488cc);
+  addLabel("Pvt Office A\n8.8'×11' (existing)", paX + 4.4, 3, paZ + 5.5, 0x4488cc);
 
-  // Pvt Office B (7.5'×11')
-  const pbX = ox + OFFICE_W + 1, pbZ = oz + OFFICE_D - 5;
-  createBox(7.5, WALL_H, WALL_T, ew, { x: pbX + 3.75, y: 0, z: pbZ }, 'Pvt Office B South', { type: 'existing', wallClass: 'existing' });
-  createBox(WALL_T, WALL_H, 11, ew, { x: pbX, y: 0, z: pbZ + 5.5 }, 'Pvt Office B West', { type: 'existing', wallClass: 'existing' });
-  addLabel("Pvt Office B\n7.5'×11'", pbX + 3.75, 3, pbZ + 5.5, 0x4488cc);
-  addLabel("Admin ×4\n(existing)", paX + 4.4, 3, paZ + 14, 0x4488cc);
+  // Door into office from west/right
+  createBox(3, 3, WALL_T, mats.door, { x: ox, y: 0, z: oz + 15 }, 'Office Entry Door', { type: 'existing' });
+  addLabel('DOOR', ox - 2, 3, oz + 15, 0xaa8844);
 
-  // Shed (80 sq ft)
+  // ---- Shed (80 sq ft) — warehouse area ----
   const sW = 10, sD = 8;
   createBox(sW, WALL_H, WALL_T, ew, { x: 5 + sW/2, y: 0, z: 10 }, 'Shed North Wall', { type: 'existing', wallClass: 'existing' });
   createBox(sW, WALL_H, WALL_T, ew, { x: 5 + sW/2, y: 0, z: 2 }, 'Shed South Wall', { type: 'existing', wallClass: 'existing' });
@@ -462,53 +474,77 @@ function buildExistingStructures() {
 function buildDefaultFurniture() {
   const iw = mats.innerWall;
   const ox = OFF_X, oz = OFF_Z;
+  // Layout: North(top)→South(bottom) within office
+  // oz+21.75 to oz+29.75: Off 1,2,3 (8' deep)
+  // oz+18.75 to oz+21.75: Corridor (3')
+  // oz+0 to oz+18.75: Lower section (18.75')
+  //   Left(highX): Conference Room 14'×18.7'
+  //   Right(lowX): Workstations + Off 4,5
 
-  // Off 1 walls
-  createBox(12, WALL_H, WALL_T, iw, { x: ox + 6, y: 0, z: oz + OFFICE_D - 18 }, 'Off1 South Wall', { type: 'inner', wallClass: 'inner' });
-  createBox(WALL_T, WALL_H, 8, iw, { x: ox + 12, y: 0, z: oz + OFFICE_D - 14 }, 'Off1 East Wall', { type: 'inner', wallClass: 'inner' });
-  addLabel('Off 1 (12×8)', ox + 6, 3, oz + OFFICE_D - 14, 0x44cc66);
-  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 4, y: 0, z: oz + OFFICE_D - 13 }, 'Off1 Desk', { type: 'furniture' });
-  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 4, y: 0, z: oz + OFFICE_D - 15 }, 'Off1 Chair', { type: 'furniture' });
+  // ---- Off 1 (Private 12×8) — left on screen = high X ----
+  const offRow = oz + 21.75; // south wall of top office row
+  createBox(12, WALL_H, WALL_T, iw, { x: ox + 30, y: 0, z: offRow }, 'Off1 South Wall', { type: 'inner', wallClass: 'inner' });
+  createBox(WALL_T, WALL_H, 8, iw, { x: ox + 24, y: 0, z: offRow + 4 }, 'Off1/2 Divider', { type: 'inner', wallClass: 'inner' });
+  addLabel('Off 1\nPrivate 12×8', ox + 30, 3, offRow + 4, 0x44cc66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 32, y: 0, z: offRow + 3 }, 'Off1 Desk', { type: 'furniture' });
+  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 32, y: 0, z: offRow + 5.5 }, 'Off1 Chair', { type: 'furniture' });
 
-  // Off 2 walls
-  createBox(WALL_T, WALL_H, 8, iw, { x: ox + 24, y: 0, z: oz + OFFICE_D - 14 }, 'Off2 East Wall', { type: 'inner', wallClass: 'inner' });
-  addLabel('Off 2 (12×8)', ox + 18, 3, oz + OFFICE_D - 14, 0x44cc66);
-  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 16, y: 0, z: oz + OFFICE_D - 13 }, 'Off2 Desk', { type: 'furniture' });
-  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 16, y: 0, z: oz + OFFICE_D - 15 }, 'Off2 Chair', { type: 'furniture' });
+  // ---- Off 2 (Private 12×8) — middle ----
+  createBox(WALL_T, WALL_H, 8, iw, { x: ox + 12, y: 0, z: offRow + 4 }, 'Off2/3 Divider', { type: 'inner', wallClass: 'inner' });
+  addLabel('Off 2\nPrivate 12×8', ox + 18, 3, offRow + 4, 0x44cc66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 20, y: 0, z: offRow + 3 }, 'Off2 Desk', { type: 'furniture' });
+  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 20, y: 0, z: offRow + 5.5 }, 'Off2 Chair', { type: 'furniture' });
 
-  // Off 3
-  addLabel('Off 3 (12×8)', ox + 30, 3, oz + OFFICE_D - 14, 0x44cc66);
-  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 28, y: 0, z: oz + OFFICE_D - 13 }, 'Off3 Desk', { type: 'furniture' });
-  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 28, y: 0, z: oz + OFFICE_D - 15 }, 'Off3 Chair', { type: 'furniture' });
+  // ---- Off 3 (Open/Cls 12×8) — right on screen = low X ----
+  addLabel('Off 3\nOpen/Cls 12×8', ox + 6, 3, offRow + 4, 0x44cc66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 8, y: 0, z: offRow + 3 }, 'Off3 Desk', { type: 'furniture' });
+  createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 8, y: 0, z: offRow + 5.5 }, 'Off3 Chair', { type: 'furniture' });
 
-  // Conference Room
-  createBox(14, WALL_H, WALL_T, iw, { x: ox + 7, y: 0, z: oz + 13.5 }, 'Conf Room North Wall', { type: 'inner', wallClass: 'inner' });
-  createBox(WALL_T, WALL_H, 12, iw, { x: ox + 14, y: 0, z: oz + 7.5 }, 'Conf Room East Wall', { type: 'inner', wallClass: 'inner' });
-  addLabel('Conference Room\n14\'×18.7\'', ox + 7, 3, oz + 7, 0x44cc66);
-  createBox(8, 2.5, 4, mats.table, { x: ox + 7, y: 0, z: oz + 7 }, 'Conf Table', { type: 'furniture' });
+  // South wall of entire Off 1-3 row
+  createBox(OFFICE_W, WALL_H, WALL_T, iw, { x: ox + OFFICE_W/2, y: 0, z: offRow }, 'Off Row South Wall', { type: 'inner', wallClass: 'inner' });
+
+  // ---- Conference Room (14'×18.7') — left on screen = high X side ----
+  const confX = ox + 22; // west edge of conf room
+  const confZ = oz + 0.5; // south edge (near entry)
+  const confW = 14, confD = 18.25;
+  createBox(confW, WALL_H, WALL_T, iw, { x: confX + confW/2, y: 0, z: confZ + confD }, 'Conf Room North Wall', { type: 'inner', wallClass: 'inner' });
+  createBox(WALL_T, WALL_H, confD, iw, { x: confX, y: 0, z: confZ + confD/2 }, 'Conf Room West Wall', { type: 'inner', wallClass: 'inner' });
+  addLabel('Conference Room\n14\'×18.7\' · 262 sf', confX + confW/2, 3, confZ + confD/2, 0x44cc66);
+  // Conference table and chairs
+  createBox(8, 2.5, 4, mats.table, { x: confX + confW/2, y: 0, z: confZ + confD/2 }, 'Conf Table', { type: 'furniture' });
   for (let i = 0; i < 4; i++) {
-    createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 3 + i*2.5, y: 0, z: oz + 4.5 }, `Conf Chair ${i+1}`, { type: 'furniture' });
-    createBox(1.5, 2.8, 1.5, mats.chair, { x: ox + 3 + i*2.5, y: 0, z: oz + 9.5 }, `Conf Chair ${i+5}`, { type: 'furniture' });
+    createBox(1.5, 2.8, 1.5, mats.chair, { x: confX + 2.5 + i*3, y: 0, z: confZ + confD/2 - 3 }, `Conf Chair ${i+1}`, { type: 'furniture' });
+    createBox(1.5, 2.8, 1.5, mats.chair, { x: confX + 2.5 + i*3, y: 0, z: confZ + confD/2 + 3 }, `Conf Chair ${i+5}`, { type: 'furniture' });
   }
+  addLabel('OPEN', ox + OFFICE_W + 2, 3, confZ + confD/2, 0x888888);
 
-  // Workstations C1-C7
-  const ws = ox + 16;
+  // ---- Workstations C1-C7 — right on screen = low X ----
+  // Top row: C1, C2, C3 (above bottom row)
+  const wsX = ox + 2; // start from west side of right column
+  const wsRowTop = oz + 13; // upper row z
+  const wsRowBot = oz + 8;  // lower row z
   for (let i = 0; i < 3; i++) {
-    createBox(4, 2.5, 3, mats.desk, { x: ws + i*5, y: 0, z: oz + 10 }, `C${i+1} Desk`, { type: 'furniture' });
-    createBox(1.3, 2.8, 1.3, mats.chair, { x: ws + i*5, y: 0, z: oz + 12 }, `C${i+1} Chair`, { type: 'furniture' });
+    createBox(4.5, 2.5, 3, mats.desk, { x: wsX + i*6.5, y: 0, z: wsRowTop }, `C${i+1} Desk`, { type: 'furniture' });
+    createBox(1.3, 2.8, 1.3, mats.chair, { x: wsX + i*6.5, y: 0, z: wsRowTop + 2.2 }, `C${i+1} Chair`, { type: 'furniture' });
   }
+  // Bottom row: C4, C5, C6, C7
   for (let i = 0; i < 4; i++) {
-    createBox(4, 2.5, 3, mats.desk, { x: ws + i*5, y: 0, z: oz + 5 }, `C${i+4} Desk`, { type: 'furniture' });
-    createBox(1.3, 2.8, 1.3, mats.chair, { x: ws + i*5, y: 0, z: oz + 3 }, `C${i+4} Chair`, { type: 'furniture' });
+    createBox(4.5, 2.5, 3, mats.desk, { x: wsX + i*5, y: 0, z: wsRowBot }, `C${i+4} Desk`, { type: 'furniture' });
+    createBox(1.3, 2.8, 1.3, mats.chair, { x: wsX + i*5, y: 0, z: wsRowBot - 2.2 }, `C${i+4} Chair`, { type: 'furniture' });
   }
-  addLabel('Workstations (C1-C7)', ox + 23, 3, oz + 7.5, 0x5599bb);
+  addLabel('7 Workstations', ox + 11, 3, oz + 10.5, 0x5599bb);
 
-  // Off 4 & 5
-  createBox(WALL_T, WALL_H, 6, iw, { x: ox + 16, y: 0, z: oz + 3 }, 'Off4 East Wall', { type: 'inner', wallClass: 'inner' });
-  createBox(10, WALL_H, WALL_T, iw, { x: ox + 19, y: 0, z: oz + 6 }, 'Off4/5 North Wall', { type: 'inner', wallClass: 'inner' });
-  addLabel('Off 4 (10×6)', ox + 19, 3, oz + 2.5, 0x44cc66);
-  createBox(WALL_T, WALL_H, 6, iw, { x: ox + 26, y: 0, z: oz + 3 }, 'Off5 Divider', { type: 'inner', wallClass: 'inner' });
-  addLabel('Off 5 (11×6)', ox + 30, 3, oz + 2.5, 0x44cc66);
+  // ---- Off 4 (10×6) & Off 5 (11×6) — bottom right ----
+  const off45z = oz + 0.5; // near entry
+  createBox(22, WALL_H, WALL_T, iw, { x: ox + 11, y: 0, z: off45z + 6 }, 'Off4/5 North Wall', { type: 'inner', wallClass: 'inner' });
+  createBox(WALL_T, WALL_H, 6, iw, { x: ox + 10, y: 0, z: off45z + 3 }, 'Off4/5 Divider', { type: 'inner', wallClass: 'inner' });
+  addLabel('Off 4\n10×6', ox + 5, 3, off45z + 3, 0x44cc66);
+  addLabel('Off 5\n11×6', ox + 16, 3, off45z + 3, 0x44cc66);
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 5, y: 0, z: off45z + 2 }, 'Off4 Desk', { type: 'furniture' });
+  createBox(5, 2.5, 2.5, mats.desk, { x: ox + 16, y: 0, z: off45z + 2 }, 'Off5 Desk', { type: 'furniture' });
+
+  // Entry label
+  addLabel('ENTRY', ox + OFFICE_W/2, 0.5, oz - 2, 0xaa8844);
 }
 
 // ============================================================
