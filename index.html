@@ -188,6 +188,9 @@
       <button id="btn-labels">Labels: ON</button>
       <button id="btn-label-size">Lbl Size: 1×</button>
       <button id="btn-orient">🧭 Reset Orient.</button>
+      <button id="btn-group" title="Group selection (⌘G)">📎 Group</button>
+      <button id="btn-ungroup" title="Ungroup (⌘⇧G)">✂ Ungroup</button>
+      <button id="btn-undo" title="Undo (⌘Z)">↩ Undo</button>
       <button id="btn-refresh">🔄 Refresh</button>
       <button id="btn-save">💾 Save</button>
       <button id="btn-load">📂 Load</button>
@@ -233,6 +236,15 @@ let mode = 'select', placeType = null, selectedObj = null, hoveredObj = null;
 let multiSelected = []; // additional objects in multi-select
 let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true, labelScale = 1;
 let moveableObjects = [], labelSprites = [];
+
+// Undo stack
+const undoStack = [];
+const MAX_UNDO = 50;
+function pushUndo(action) { undoStack.push(action); if (undoStack.length > MAX_UNDO) undoStack.shift(); }
+
+// Groups: each group = { id, members: [mesh,...], labels: [sprite,...] }
+let groups = [], nextGroupId = 1;
+function getGroup(obj) { return groups.find(g => g.members.includes(obj)); }
 const dragPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
 const dragOffset = new THREE.Vector3();
 // Rate limit: 50 messages/day
@@ -774,17 +786,31 @@ function getClickedObject(e) { getIntersection(e); return (raycaster.intersectOb
 // ============================================================
 const canvas = renderer.domElement;
 
+let preDragPositions = []; // for undo: [{obj, x, z},...] saved at mousedown
+
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2 || e.button === 1) {
     if (e.button === 2) orbitState.panning = true; else orbitState.dragging = true;
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; e.preventDefault(); return;
   }
-  if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) selectObject(m); } return; }
+  if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); } } return; }
   const obj = getClickedObject(e);
   if (obj) {
     if (e.shiftKey) { toggleMultiSelect(obj); }
     else { selectObject(obj); }
-    if ((mode === 'move' || mode === 'select') && !obj.userData.fixed && !e.shiftKey) { isDragging = true; const pt = getFloorPoint(e); if (pt) { dragOffset.subVectors(obj.position, pt); dragOffset.y = 0; } }
+    if ((mode === 'move' || mode === 'select') && !obj.userData.fixed && !e.shiftKey) {
+      isDragging = true;
+      const pt = getFloorPoint(e); if (pt) { dragOffset.subVectors(obj.position, pt); dragOffset.y = 0; }
+      // Save pre-drag positions for undo (obj + group members + labels)
+      preDragPositions = [];
+      const grp = getGroup(obj);
+      if (grp) {
+        grp.members.forEach(m => preDragPositions.push({ obj:m, x:m.position.x, z:m.position.z }));
+        grp.labels.forEach(l => preDragPositions.push({ obj:l, x:l.position.x, z:l.position.z }));
+      } else {
+        preDragPositions.push({ obj, x:obj.position.x, z:obj.position.z });
+      }
+    }
   } else { selectObject(null); orbitState.dragging = true; orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; }
 });
 
@@ -804,7 +830,20 @@ canvas.addEventListener('mousemove', (e) => {
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; updateOrbitCamera(); return;
   }
   if (isDragging && selectedObj && !selectedObj.userData.fixed) {
-    const pt = getFloorPoint(e); if (pt) { selectedObj.position.x = snap(pt.x + dragOffset.x); selectedObj.position.z = snap(pt.z + dragOffset.z); updatePropFields(); } return;
+    const pt = getFloorPoint(e);
+    if (pt) {
+      const newX = snap(pt.x + dragOffset.x), newZ = snap(pt.z + dragOffset.z);
+      const dx = newX - selectedObj.position.x, dz = newZ - selectedObj.position.z;
+      selectedObj.position.x = newX; selectedObj.position.z = newZ;
+      // Move group members + labels together
+      const grp = getGroup(selectedObj);
+      if (grp) {
+        grp.members.forEach(m => { if (m !== selectedObj) { m.position.x += dx; m.position.z += dz; }});
+        grp.labels.forEach(l => { l.position.x += dx; l.position.z += dz; });
+      }
+      updatePropFields();
+    }
+    return;
   }
   if (placeType && ghostObj) {
     const pt = getFloorPoint(e); if (pt) { ghostObj.position.x = snap(pt.x); ghostObj.position.z = snap(pt.z); const d = getFurnitureDims(placeType); if (d) ghostObj.position.y = placeType==='window' ? 4+d.h/2 : d.h/2; } return;
@@ -814,7 +853,8 @@ canvas.addEventListener('mousemove', (e) => {
   if (obj && obj !== selectedObj && !multiSelected.includes(obj)) {
     obj.material.emissive.setHex(0x111100);
     const tt = document.getElementById('tooltip');
-    tt.textContent = obj.userData.name + (obj.userData.fixed ? ' (Locked)' : '') + (obj.userData.wallClass ? ` [${obj.userData.wallClass}]` : '');
+    const grp = getGroup(obj);
+    tt.textContent = obj.userData.name + (obj.userData.fixed ? ' (Locked)' : '') + (obj.userData.wallClass ? ` [${obj.userData.wallClass}]` : '') + (grp ? ` [Group ${grp.id}]` : '');
     tt.style.display = 'block'; tt.style.left = (e.clientX - 240) + 'px'; tt.style.top = (e.clientY - 28) + 'px';
   } else document.getElementById('tooltip').style.display = 'none';
   hoveredObj = obj;
@@ -822,15 +862,106 @@ canvas.addEventListener('mousemove', (e) => {
   if (pt) document.getElementById('status-left').textContent = `Cursor: ${pt.x.toFixed(1)}', ${pt.z.toFixed(1)}'  |  Mode: ${mode}${placeType ? ' | Placing: '+placeType : ''}`;
 });
 
-canvas.addEventListener('mouseup', () => { isDragging = false; orbitState.dragging = false; orbitState.panning = false; });
+canvas.addEventListener('mouseup', () => {
+  if (isDragging && preDragPositions.length > 0) {
+    const moved = preDragPositions.some(p => p.obj.position.x !== p.x || p.obj.position.z !== p.z);
+    if (moved) pushUndo({ type:'move', positions: preDragPositions });
+    preDragPositions = [];
+  }
+  isDragging = false; orbitState.dragging = false; orbitState.panning = false;
+});
 canvas.addEventListener('wheel', (e) => { orbitState.radius = Math.max(5, Math.min(200, orbitState.radius + e.deltaY * 0.05)); updateOrbitCamera(); e.preventDefault(); }, { passive: false });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  const cmd = e.metaKey || e.ctrlKey;
+
   if (e.key === 'Escape') { placeType = null; removeGhost(); selectObject(null); document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active')); }
-  if ((e.key === 'Delete' || e.key === 'Backspace')) { const all = getAllSelected(); if (all.length) { all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); }); selectObject(null); } }
-  if (e.key === 'r') { const all = getAllSelected(); if (all.length) { all.forEach(o => o.rotation.y += Math.PI/4); updatePropFields(); } }
+
+  // Cmd+Z — Undo
+  if (cmd && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    const action = undoStack.pop();
+    if (!action) return;
+    if (action.type === 'move') {
+      action.positions.forEach(p => { p.obj.position.x = p.x; p.obj.position.z = p.z; });
+      updatePropFields();
+    } else if (action.type === 'add') {
+      scene.remove(action.obj); moveableObjects = moveableObjects.filter(m => m !== action.obj);
+      selectObject(null);
+    } else if (action.type === 'delete') {
+      action.items.forEach(o => { scene.add(o); moveableObjects.push(o); });
+      selectObject(null);
+    } else if (action.type === 'rotate') {
+      action.items.forEach(r => { r.obj.rotation.y = r.prevRot; });
+      updatePropFields();
+    } else if (action.type === 'group') {
+      // Undo group = ungroup
+      groups = groups.filter(g => g.id !== action.groupId);
+      document.getElementById('status-left').textContent = 'Group undone';
+    } else if (action.type === 'ungroup') {
+      groups.push(action.group);
+      document.getElementById('status-left').textContent = 'Ungroup undone';
+    }
+    return;
+  }
+
+  // Cmd+G — Group selected objects (+ nearby labels)
+  if (cmd && e.key === 'g' && !e.shiftKey) {
+    e.preventDefault();
+    const all = getAllSelected();
+    if (all.length < 2) { document.getElementById('status-left').textContent = 'Select 2+ objects to group'; return; }
+    // Find labels near any member (within 8 ft of any member center)
+    const nearLabels = labelSprites.filter(lbl => {
+      if (!lbl.visible) return false;
+      return all.some(m => {
+        const dx = lbl.position.x - m.position.x, dz = lbl.position.z - m.position.z;
+        return Math.sqrt(dx*dx + dz*dz) < 8;
+      });
+    });
+    // Remove members from any existing groups first
+    all.forEach(m => { const g = getGroup(m); if (g) { g.members = g.members.filter(x => x !== m); if (g.members.length < 2) groups = groups.filter(x => x !== g); }});
+    const gid = nextGroupId++;
+    const grp = { id: gid, members: [...all], labels: nearLabels };
+    groups.push(grp);
+    pushUndo({ type:'group', groupId: gid });
+    document.getElementById('status-left').textContent = `Grouped ${all.length} objects + ${nearLabels.length} labels (ID:${gid})`;
+    return;
+  }
+
+  // Cmd+Shift+G — Ungroup
+  if (cmd && e.key === 'g' && e.shiftKey) {
+    e.preventDefault();
+    if (!selectedObj) return;
+    const grp = getGroup(selectedObj);
+    if (!grp) { document.getElementById('status-left').textContent = 'Object not in a group'; return; }
+    groups = groups.filter(g => g !== grp);
+    pushUndo({ type:'ungroup', group: grp });
+    document.getElementById('status-left').textContent = `Ungrouped ${grp.members.length} objects`;
+    return;
+  }
+
+  // Delete/Backspace — with undo
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    const all = getAllSelected();
+    if (all.length) {
+      pushUndo({ type:'delete', items: [...all] });
+      all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); });
+      selectObject(null);
+    }
+  }
+
+  // R — Rotate with undo
+  if (e.key === 'r' && !cmd) {
+    const all = getAllSelected();
+    if (all.length) {
+      const prevRots = all.map(o => ({ obj:o, prevRot: o.rotation.y }));
+      all.forEach(o => o.rotation.y += Math.PI/4);
+      pushUndo({ type:'rotate', items: prevRots });
+      updatePropFields();
+    }
+  }
 });
 
 // ============================================================
@@ -893,6 +1024,9 @@ document.getElementById('btn-orient').addEventListener('click', () => {
   orbitState.target.set(DEFAULT_VIEW.tx, 0, DEFAULT_VIEW.tz); updateOrbitCamera();
   ['view-3d','view-top','view-office'].forEach(v => document.getElementById(v).classList.remove('active'));
 });
+document.getElementById('btn-undo').addEventListener('click', () => { document.dispatchEvent(new KeyboardEvent('keydown', { key:'z', metaKey:true })); });
+document.getElementById('btn-group').addEventListener('click', () => { document.dispatchEvent(new KeyboardEvent('keydown', { key:'g', metaKey:true })); });
+document.getElementById('btn-ungroup').addEventListener('click', () => { document.dispatchEvent(new KeyboardEvent('keydown', { key:'g', metaKey:true, shiftKey:true })); });
 document.getElementById('btn-refresh').addEventListener('click', () => { renderer.render(scene, camera); onResize(); addChatMsg('system', '✓ Scene refreshed'); });
 document.getElementById('btn-grid').addEventListener('click', (e) => {
   if (e.shiftKey) { // Shift+click cycles grid cell size
