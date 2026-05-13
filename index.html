@@ -262,7 +262,7 @@ container.appendChild(renderer.domElement);
 
 // Default orientation: top-down with North pointing LEFT on screen
 // theta=0 → camera east of target looking west → North (+Z) is screen-left
-const DEFAULT_VIEW = { phi: 0.25, theta: 0, radius: 115, tx: BLDG_W/2, tz: BLDG_D/2 };
+const DEFAULT_VIEW = { phi: 0.25, theta: 0, radius: 130, tx: BLDG_W/2, tz: BLDG_D/2 };
 const orbitState = { target: new THREE.Vector3(DEFAULT_VIEW.tx, 0, DEFAULT_VIEW.tz), phi: DEFAULT_VIEW.phi, theta: DEFAULT_VIEW.theta, radius: DEFAULT_VIEW.radius, dragging: false, panning: false, lastX: 0, lastY: 0 };
 
 function updateOrbitCamera() {
@@ -531,10 +531,10 @@ function buildCompass() {
   const compassGroup = new THREE.Group();
   compassGroup.userData = { name: 'Compass', type: 'decoration', fixed: true, isCompass: true };
 
-  // Position compass outside building — bottom-left in default view (South-East corner)
-  // With default view (theta=0), screen-left=+Z(N), screen-right=-Z(S), screen-up=-X(W), screen-down=+X(E)
-  // Place at high X (screen bottom), high Z (screen left) = outside SE corner area
-  const cx = BLDG_W + 15, cz = BLDG_D / 2;
+  // Position compass outside building — bottom-right in default view
+  // With default view (theta=0): screen-left=+Z(N), screen-right=-Z(S), screen-up=-X(W), screen-down=+X(E)
+  // Place at low X, low Z = outside SW corner (screen upper-right area)
+  const cx = -15, cz = -15;
 
   // North arrow shaft (red) — points along +Z
   const shaftGeo = new THREE.CylinderGeometry(0.4, 0.4, 10, 8);
