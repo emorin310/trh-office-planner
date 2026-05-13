@@ -859,7 +859,7 @@ canvas.addEventListener('mousemove', (e) => {
     const ps = orbitState.radius * 0.002;
     const right = new THREE.Vector3(); camera.getWorldDirection(right); right.cross(camera.up).normalize();
     const fwd = new THREE.Vector3(); fwd.copy(right).cross(new THREE.Vector3(0,1,0)).normalize();
-    orbitState.target.addScaledVector(right, -dx * ps); orbitState.target.addScaledVector(fwd, dy * ps);
+    orbitState.target.addScaledVector(right, -dx * ps); orbitState.target.addScaledVector(fwd, -dy * ps);
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; updateOrbitCamera(); return;
   }
   if (isDragging && selectedObj && !selectedObj.userData.fixed) {
