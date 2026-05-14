@@ -160,6 +160,7 @@
         <div class="prop-row"><label>Rot °</label><input id="prop-rot" type="number" step="15"></div>
         <div class="prop-row" id="prop-w-row" style="display:none"><label>W (ft)</label><input id="prop-w" type="number" step="0.5" min="0.5"></div>
         <div class="prop-row" id="prop-d-row" style="display:none"><label>D (ft)</label><input id="prop-d" type="number" step="0.5" min="0.5"></div>
+        <div class="prop-row" id="prop-h-row" style="display:none"><label>H (ft)</label><input id="prop-h" type="number" step="0.5" min="0.5"></div>
         <div class="prop-row"><label>Color</label><input id="prop-color" type="color" value="#4488aa"></div>
         <div class="prop-actions">
           <button id="btn-duplicate">Duplicate</button>
@@ -1277,7 +1278,9 @@ function createFurnitureGeometry(type, w, h, d) {
     s.closePath();
     const geo = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false });
     geo.rotateX(-Math.PI / 2);
-    geo.translate(0, h/2, 0);
+    // After rotateX(-PI/2), geometry spans y=[0,h]. Shift to center [-h/2, h/2]
+    // so that mesh.position.y = h/2 puts bottom at ground (y=0)
+    geo.translate(0, -h/2, 0);
     geo.computeBoundingBox();
     const bb = geo.boundingBox;
     geo.translate(-(bb.max.x+bb.min.x)/2, 0, -(bb.max.z+bb.min.z)/2);
@@ -1295,7 +1298,8 @@ function createFurnitureGeometry(type, w, h, d) {
     const seatH = h * 0.55;
     const geo = new THREE.ExtrudeGeometry(s, { depth: seatH, bevelEnabled: false });
     geo.rotateX(-Math.PI / 2);
-    geo.translate(0, seatH/2, 0);
+    // Center using full height h (not seatH) so position.y = h/2 puts bottom at y=0
+    geo.translate(0, -h/2, 0);
     geo.computeBoundingBox();
     const bb = geo.boundingBox;
     geo.translate(-(bb.max.x+bb.min.x)/2, 0, -(bb.max.z+bb.min.z)/2);
@@ -1316,14 +1320,17 @@ function addFurnitureDetails(mesh, type) {
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a3a4e, roughness: 0.6 });
 
   if (type === 'chair') {
-    const backH = h * 0.8;
+    const seatH = h * 0.55;
+    const backH = h * 0.45;
     const backT = d * 0.15;
     const r = Math.min(w, d) / 2;
     const backGeo = new THREE.BoxGeometry(w * 0.85, backH, backT);
     const back = new THREE.Mesh(backGeo, frameMat.clone());
     back.material.color.copy(mesh.material.color);
     back.material.color.multiplyScalar(0.75);
-    back.position.set(0, backH/2 - h/2 + h*0.1, -(r - backT/2));
+    // Geometry is centered at y=0 (spans -h/2 to -h/2+seatH). Backrest sits above seat.
+    const seatTop = -h/2 + seatH;
+    back.position.set(0, seatTop + backH/2, -(r - backT/2));
     back.userData = { isDetail: true };
     mesh.add(back);
   }
@@ -1444,6 +1451,7 @@ function selectObject(obj) {
     document.getElementById('btn-lock').textContent = 'Lock';
     document.getElementById('prop-w-row').style.display = 'none';
     document.getElementById('prop-d-row').style.display = 'none';
+    document.getElementById('prop-h-row').style.display = 'none';
     document.getElementById('prop-y-row').style.display = 'none';
   } else if (obj && !obj.userData.fixed) {
     obj.material.emissive.setHex(0x333300);
@@ -1462,10 +1470,16 @@ function selectObject(obj) {
       const bottomY = obj.position.y - (obj.userData.height || 0) / 2;
       document.getElementById('prop-y').value = bottomY.toFixed(1);
     }
-    // Show W/D fields for walls/structures
+    // Show W/D/H fields for walls/structures/furniture
     const isResizable = obj.userData.wallClass || obj.userData.type === 'inner' || obj.userData.type === 'existing' || obj.userData.type === 'furniture' || obj.userData.type === 'opening';
     document.getElementById('prop-w-row').style.display = isResizable ? 'flex' : 'none';
     document.getElementById('prop-d-row').style.display = isResizable ? 'flex' : 'none';
+    // Show H(ft) for furniture and inner walls
+    const showH = obj.userData.type === 'furniture' || obj.userData.wallClass || obj.userData.type === 'inner';
+    document.getElementById('prop-h-row').style.display = showH ? 'flex' : 'none';
+    if (showH) {
+      document.getElementById('prop-h').value = (obj.userData.height || 1).toFixed(1);
+    }
     if (isResizable) createResizeHandles(obj);
     if (isResizable) {
       document.getElementById('prop-w').value = (obj.userData.width || 1).toFixed(1);
@@ -1476,6 +1490,7 @@ function selectObject(obj) {
     document.getElementById('selection-props').style.display = 'none';
     document.getElementById('prop-w-row').style.display = 'none';
     document.getElementById('prop-d-row').style.display = 'none';
+    document.getElementById('prop-h-row').style.display = 'none';
     document.getElementById('prop-y-row').style.display = 'none';
     selectedObj = null;
   }
@@ -2093,9 +2108,9 @@ document.getElementById('prop-z').addEventListener('change', e => { if (selected
 document.getElementById('prop-rot').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value)); });
 document.getElementById('prop-color').addEventListener('input', e => { if (selectedObj && !selectedObj.userData.isLabel) { selectedObj.material.color.set(e.target.value); selectedObj.userData.originalColor = selectedObj.material.color.getHex(); }});
 
-function resizeObject(obj, newW, newD) {
+function resizeObject(obj, newW, newD, newH) {
   if (!obj) return;
-  const h = obj.userData.height || WALL_H;
+  const h = newH || obj.userData.height || WALL_H;
   const ft = obj.userData.furnitureType;
   obj.geometry.dispose();
   if (['ldesk','chair','bookshelf','cabinet'].includes(ft)) {
@@ -2105,6 +2120,7 @@ function resizeObject(obj, newW, newD) {
   }
   obj.userData.width = newW;
   obj.userData.depth = newD;
+  obj.userData.height = h;
   obj.position.y = h / 2;
   // Remove old detail children and re-add
   const toRemove = [];
@@ -2114,6 +2130,7 @@ function resizeObject(obj, newW, newD) {
 }
 document.getElementById('prop-w').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, parseFloat(e.target.value), selectedObj.userData.depth); }});
 document.getElementById('prop-d').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, selectedObj.userData.width, parseFloat(e.target.value)); }});
+document.getElementById('prop-h').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, selectedObj.userData.width, selectedObj.userData.depth, parseFloat(e.target.value)); }});
 document.getElementById('btn-delete').addEventListener('click', () => { const all = getAllSelected(); if (all.length) { all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); }); selectObject(null); } });
 document.getElementById('btn-duplicate').addEventListener('click', () => {
   if (!selectedObj || selectedObj.userData.fixed) return;
