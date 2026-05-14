@@ -239,6 +239,65 @@ let multiSelected = []; // additional objects in multi-select
 let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true, labelScale = 2;
 let moveableObjects = [], labelSprites = [];
 
+// Resize handles
+let resizeHandles = []; // [{mesh, axis:'x'|'z', sign:1|-1}]
+let isResizing = false, resizeHandle = null, resizeStart = null, resizeOrigW = 0, resizeOrigD = 0, resizeOrigPos = null;
+const HANDLE_SIZE = 0.8;
+const handleMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0x553300, roughness: 0.3 });
+
+function createResizeHandles(obj) {
+  removeResizeHandles();
+  if (!obj || obj.userData.isLabel || obj.userData.fixed) return;
+  const w = obj.userData.width || 1, d = obj.userData.depth || 1, h = obj.userData.height || WALL_H;
+  // 4 handles: +x, -x, +z, -z edges
+  const defs = [
+    { axis: 'x', sign:  1, x: w/2, z: 0 },
+    { axis: 'x', sign: -1, x: -w/2, z: 0 },
+    { axis: 'z', sign:  1, x: 0, z: d/2 },
+    { axis: 'z', sign: -1, x: 0, z: -d/2 },
+  ];
+  defs.forEach(def => {
+    const geo = new THREE.BoxGeometry(HANDLE_SIZE, h * 0.3, HANDLE_SIZE);
+    const mesh = new THREE.Mesh(geo, handleMat.clone());
+    // Position in world space accounting for object rotation
+    const lx = def.x, lz = def.z;
+    const cos = Math.cos(obj.rotation.y), sin = Math.sin(obj.rotation.y);
+    mesh.position.set(
+      obj.position.x + lx * cos - lz * sin,
+      h * 0.5,
+      obj.position.z + lx * sin + lz * cos
+    );
+    mesh.rotation.y = obj.rotation.y;
+    mesh.userData = { isHandle: true, axis: def.axis, sign: def.sign };
+    scene.add(mesh);
+    resizeHandles.push(mesh);
+  });
+}
+
+function removeResizeHandles() {
+  resizeHandles.forEach(h => scene.remove(h));
+  resizeHandles = [];
+}
+
+function updateHandlePositions(obj) {
+  if (!obj || resizeHandles.length !== 4) return;
+  const w = obj.userData.width || 1, d = obj.userData.depth || 1, h = obj.userData.height || WALL_H;
+  const positions = [
+    { x: w/2, z: 0 }, { x: -w/2, z: 0 },
+    { x: 0, z: d/2 }, { x: 0, z: -d/2 },
+  ];
+  const cos = Math.cos(obj.rotation.y), sin = Math.sin(obj.rotation.y);
+  resizeHandles.forEach((hm, i) => {
+    const lx = positions[i].x, lz = positions[i].z;
+    hm.position.set(
+      obj.position.x + lx * cos - lz * sin,
+      h * 0.5,
+      obj.position.z + lx * sin + lz * cos
+    );
+    hm.rotation.y = obj.rotation.y;
+  });
+}
+
 // Undo stack
 const undoStack = [];
 const MAX_UNDO = 50;
@@ -787,6 +846,7 @@ function selectObject(obj) {
     if (selectedObj.material.emissive) selectedObj.material.emissive.setHex(0x000000);
     else if (selectedObj.userData.isLabel) selectedObj.material.opacity = 1;
   }
+  removeResizeHandles();
   clearMultiSelect();
   selectedObj = obj;
   if (obj && obj.userData.isLabel) {
@@ -816,6 +876,7 @@ function selectObject(obj) {
     const isResizable = obj.userData.wallClass || obj.userData.type === 'inner' || obj.userData.type === 'existing' || obj.userData.type === 'furniture';
     document.getElementById('prop-w-row').style.display = isResizable ? 'flex' : 'none';
     document.getElementById('prop-d-row').style.display = isResizable ? 'flex' : 'none';
+    if (isResizable) createResizeHandles(obj);
     if (isResizable) {
       document.getElementById('prop-w').value = (obj.userData.width || 1).toFixed(1);
       document.getElementById('prop-d').value = (obj.userData.depth || 1).toFixed(1);
@@ -863,6 +924,21 @@ canvas.addEventListener('mousedown', (e) => {
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; e.preventDefault(); return;
   }
   if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); } } return; }
+  // Check resize handles first
+  if (resizeHandles.length > 0 && selectedObj) {
+    getIntersection(e);
+    const hHit = raycaster.intersectObjects(resizeHandles, false)[0];
+    if (hHit) {
+      isResizing = true;
+      resizeHandle = hHit.object;
+      resizeHandle.material.emissive.setHex(0xaa6600);
+      resizeStart = getFloorPoint(e);
+      resizeOrigW = selectedObj.userData.width;
+      resizeOrigD = selectedObj.userData.depth;
+      resizeOrigPos = selectedObj.position.clone();
+      return;
+    }
+  }
   const obj = getClickedObject(e);
   if (obj) {
     if (e.shiftKey) { if (!obj.userData.isLabel) toggleMultiSelect(obj); }
@@ -898,6 +974,43 @@ canvas.addEventListener('mousemove', (e) => {
     orbitState.target.addScaledVector(right, -dx * ps); orbitState.target.addScaledVector(fwd, -dy * ps);
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; updateOrbitCamera(); return;
   }
+  // Resize handle drag
+  if (isResizing && resizeHandle && selectedObj && resizeStart) {
+    const pt = getFloorPoint(e);
+    if (pt) {
+      const axis = resizeHandle.userData.axis;
+      const sign = resizeHandle.userData.sign;
+      const cos = Math.cos(selectedObj.rotation.y), sin = Math.sin(selectedObj.rotation.y);
+      // Project mouse delta onto the handle's axis in local space
+      const dx = pt.x - resizeStart.x, dz = pt.z - resizeStart.z;
+      let localDelta;
+      if (axis === 'x') {
+        localDelta = dx * cos + dz * sin; // project onto local X
+      } else {
+        localDelta = -dx * sin + dz * cos; // project onto local Z
+      }
+      const delta = snap(localDelta * sign);
+      if (axis === 'x') {
+        const newW = Math.max(0.5, resizeOrigW + delta);
+        // Shift position so the opposite edge stays fixed
+        const shift = (newW - resizeOrigW) / 2 * sign;
+        resizeObject(selectedObj, newW, selectedObj.userData.depth);
+        selectedObj.position.x = resizeOrigPos.x + shift * cos;
+        selectedObj.position.z = resizeOrigPos.z + shift * sin;
+      } else {
+        const newD = Math.max(0.5, resizeOrigD + delta);
+        const shift = (newD - resizeOrigD) / 2 * sign;
+        resizeObject(selectedObj, selectedObj.userData.width, newD);
+        selectedObj.position.x = resizeOrigPos.x - shift * sin;
+        selectedObj.position.z = resizeOrigPos.z + shift * cos;
+      }
+      updateHandlePositions(selectedObj);
+      updatePropFields();
+      document.getElementById('prop-w').value = selectedObj.userData.width.toFixed(1);
+      document.getElementById('prop-d').value = selectedObj.userData.depth.toFixed(1);
+    }
+    return;
+  }
   if (isDragging && selectedObj && !selectedObj.userData.fixed) {
     const pt = getFloorPoint(e);
     if (pt) {
@@ -915,6 +1028,7 @@ canvas.addEventListener('mousemove', (e) => {
         }
       }
       updatePropFields();
+      if (resizeHandles.length) updateHandlePositions(selectedObj);
     }
     return;
   }
@@ -941,6 +1055,16 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('mouseup', () => {
+  if (isResizing && selectedObj && resizeHandle) {
+    const newW = selectedObj.userData.width, newD = selectedObj.userData.depth;
+    const newPos = selectedObj.position.clone();
+    if (newW !== resizeOrigW || newD !== resizeOrigD) {
+      pushUndo({ type:'resize', obj: selectedObj, prevW: resizeOrigW, prevD: resizeOrigD, prevPos: resizeOrigPos, newW, newD, newPos });
+    }
+    resizeHandle.material.emissive.setHex(0x553300);
+    isResizing = false; resizeHandle = null; resizeStart = null;
+    return;
+  }
   if (isDragging && preDragPositions.length > 0) {
     const moved = preDragPositions.some(p => p.obj.position.x !== p.x || p.obj.position.z !== p.z);
     if (moved) pushUndo({ type:'move', positions: preDragPositions });
@@ -974,6 +1098,10 @@ document.addEventListener('keydown', (e) => {
     } else if (action.type === 'rotate') {
       action.items.forEach(r => { r.obj.rotation.y = r.prevRot; });
       updatePropFields();
+    } else if (action.type === 'resize') {
+      resizeObject(action.obj, action.prevW, action.prevD);
+      action.obj.position.copy(action.prevPos);
+      if (selectedObj === action.obj) { createResizeHandles(action.obj); updatePropFields(); }
     } else if (action.type === 'group-rotate') {
       action.items.forEach(r => { r.obj.rotation.y = r.prevRot; r.obj.position.x = r.px; r.obj.position.z = r.pz; });
       updatePropFields();
