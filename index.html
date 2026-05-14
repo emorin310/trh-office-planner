@@ -1081,6 +1081,54 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape') { placeType = null; removeGhost(); selectObject(null); document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active')); }
 
+  // Cmd+C — Copy selected objects
+  if (cmd && e.key === 'c') {
+    e.preventDefault();
+    const all = getAllSelected();
+    if (all.length === 0 && selectedObj && selectedObj.userData.isLabel) return; // skip labels
+    if (all.length === 0) return;
+    window._clipboardObjs = all.map(o => ({
+      name: o.userData.name, type: o.userData.type, furnitureType: o.userData.furnitureType,
+      w: o.userData.width, h: o.userData.height, d: o.userData.depth,
+      color: o.material.color.getHex(), ry: o.rotation.y,
+      wallClass: o.userData.wallClass, fixed: false,
+      dx: o.position.x - all[0].position.x, dz: o.position.z - all[0].position.z,
+    }));
+    addChatMsg('system', `✓ Copied ${all.length} object${all.length>1?'s':''}`);
+    return;
+  }
+
+  // Cmd+V — Paste at offset from original
+  if (cmd && e.key === 'v') {
+    e.preventDefault();
+    if (!window._clipboardObjs || window._clipboardObjs.length === 0) return;
+    const offset = 3; // paste offset in feet
+    const pasted = [];
+    window._clipboardObjs.forEach(item => {
+      const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+      const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
+      const m = new THREE.Mesh(geo, mat);
+      // Place relative to first object + offset
+      const baseX = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.x : window._clipboardObjs[0].dx + BLDG_W/2) + offset;
+      const baseZ = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.z : window._clipboardObjs[0].dz + BLDG_D/2) + offset;
+      m.position.set(snap(baseX + item.dx), item.h/2, snap(baseZ + item.dz));
+      m.rotation.y = item.ry;
+      m.castShadow = true; m.receiveShadow = true;
+      m.userData = {
+        name: item.name + ' copy', type: item.type, furnitureType: item.furnitureType || item.type,
+        fixed: false, width: item.w, height: item.h, depth: item.d,
+        originalColor: item.color, wallClass: item.wallClass
+      };
+      scene.add(m); moveableObjects.push(m); pasted.push(m);
+    });
+    pushUndo({ type:'paste', items: [...pasted] }); // undo = remove pasted
+    // Select pasted objects
+    if (pasted.length === 1) selectObject(pasted[0]);
+    else { selectObject(pasted[0]); pasted.slice(1).forEach(p => toggleMultiSelect(p)); }
+    addChatMsg('system', `✓ Pasted ${pasted.length} object${pasted.length>1?'s':''}`);
+    return;
+  }
+
   // Cmd+Z — Undo
   if (cmd && e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
@@ -1089,6 +1137,9 @@ document.addEventListener('keydown', (e) => {
     if (action.type === 'move') {
       action.positions.forEach(p => { p.obj.position.x = p.x; p.obj.position.z = p.z; });
       updatePropFields();
+    } else if (action.type === 'paste') {
+      action.items.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); });
+      selectObject(null);
     } else if (action.type === 'add') {
       scene.remove(action.obj); moveableObjects = moveableObjects.filter(m => m !== action.obj);
       selectObject(null);
