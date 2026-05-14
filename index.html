@@ -1153,7 +1153,7 @@ function createGrid(cellSize) {
 // ============================================================
 // Ghost & Furniture dims
 // ============================================================
-let ghostObj = null;
+let ghostObj = null, placeRotation = 0;
 function getFurnitureDims(type) {
   return ({
     'desk': {w:5,h:2.5,d:2.5}, 'ldesk': {w:5,h:2.5,d:5}, 'chair': {w:1.5,h:2.8,d:1.5},
@@ -1535,7 +1535,7 @@ canvas.addEventListener('mousedown', (e) => {
         });
         return;
       }
-      const m = placeObject(placeType, pt);
+      const m = placeObject(placeType, pt, null, THREE.MathUtils.radToDeg(placeRotation));
       if (m) {
         // Auto-snap openings to nearest wall on placement
         if (OPENING_TYPES.includes(placeType)) {
@@ -1681,7 +1681,7 @@ canvas.addEventListener('mousemove', (e) => {
     return;
   }
   if (placeType && ghostObj) {
-    const pt = getFloorPoint(e); if (pt) { ghostObj.position.x = snap(pt.x); ghostObj.position.z = snap(pt.z); const d = getFurnitureDims(placeType); if (d) ghostObj.position.y = placeType==='window' ? 4+d.h/2 : d.h/2; } return;
+    const pt = getFloorPoint(e); if (pt) { ghostObj.position.x = snap(pt.x); ghostObj.position.z = snap(pt.z); ghostObj.rotation.y = placeRotation; const d = getFurnitureDims(placeType); if (d) ghostObj.position.y = placeType==='window' ? 4+d.h/2 : d.h/2; } return;
   }
   const obj = getClickedObject(e);
   if (hoveredObj && hoveredObj !== selectedObj && hoveredObj !== obj && !multiSelected.includes(hoveredObj)) {
@@ -1699,7 +1699,7 @@ canvas.addEventListener('mousemove', (e) => {
   } else document.getElementById('tooltip').style.display = 'none';
   hoveredObj = obj;
   const pt = getFloorPoint(e);
-  if (pt) document.getElementById('status-left').textContent = `Cursor: ${pt.x.toFixed(1)}', ${pt.z.toFixed(1)}'  |  Mode: ${mode}${placeType ? ' | Placing: '+placeType : ''}`;
+  if (pt) document.getElementById('status-left').textContent = `Cursor: ${pt.x.toFixed(1)}', ${pt.z.toFixed(1)}'  |  Mode: ${mode}${placeType ? ' | Placing: '+placeType+' (R to rotate)' : ''}`;
 });
 
 canvas.addEventListener('mouseup', () => {
@@ -1790,7 +1790,19 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const cmd = e.metaKey || e.ctrlKey;
 
-  if (e.key === 'Escape') { placeType = null; removeGhost(); selectObject(null); document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active')); }
+  if (e.key === 'Escape') { placeType = null; placeRotation = 0; removeGhost(); selectObject(null); document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active')); }
+
+  // R — Rotate placement ghost or selected object 90°
+  if (e.key === 'r' || e.key === 'R') {
+    if (placeType && ghostObj) {
+      placeRotation = (placeRotation + Math.PI / 2) % (Math.PI * 2);
+      ghostObj.rotation.y = placeRotation;
+    } else if (selectedObj && !selectedObj.userData.fixed) {
+      selectedObj.rotation.y = (selectedObj.rotation.y + Math.PI / 2) % (Math.PI * 2);
+      if (OPENING_TYPES.includes(selectedObj.userData.furnitureType)) performWallCuts();
+      updatePropFields();
+    }
+  }
 
   // Cmd+C — Copy selected objects
   if (cmd && e.key === 'c') {
@@ -2056,7 +2068,7 @@ document.querySelectorAll('[data-mode]').forEach(btn => btn.addEventListener('cl
 document.querySelectorAll('[data-place]').forEach(btn => btn.addEventListener('click', () => {
   const t = btn.dataset.place;
   if (placeType === t) { placeType = null; removeGhost(); btn.classList.remove('active'); return; }
-  placeType = t; mode = 'place';
+  placeType = t; mode = 'place'; placeRotation = 0;
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active'); createGhostForType(t);
