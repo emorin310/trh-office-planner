@@ -1221,6 +1221,44 @@ document.addEventListener('keydown', (e) => {
     }
   }
 
+  // Arrow keys — nudge selected objects by 1 grid unit
+  if (e.key.startsWith('Arrow') && !cmd) {
+    const all = getAllSelected();
+    if (all.length === 0 && selectedObj && selectedObj.userData.isLabel) {
+      // Nudge label
+      e.preventDefault();
+      const step = snapSize || 0.5;
+      if (e.key === 'ArrowLeft') selectedObj.position.x += step;
+      if (e.key === 'ArrowRight') selectedObj.position.x -= step;
+      if (e.key === 'ArrowUp') selectedObj.position.z += step;
+      if (e.key === 'ArrowDown') selectedObj.position.z -= step;
+      updatePropFields(); return;
+    }
+    if (all.length) {
+      e.preventDefault();
+      const step = snapSize || 0.5;
+      let dx = 0, dz = 0;
+      if (e.key === 'ArrowLeft') dx = step;
+      if (e.key === 'ArrowRight') dx = -step;
+      if (e.key === 'ArrowUp') dz = step;
+      if (e.key === 'ArrowDown') dz = -step;
+      // Save undo
+      const positions = [];
+      all.forEach(o => { positions.push({ obj:o, x:o.position.x, z:o.position.z }); });
+      // Also collect group labels
+      const grps = new Set();
+      all.forEach(o => { const g = getGroup(o); if (g) grps.add(g); });
+      grps.forEach(g => { g.labels.forEach(l => positions.push({ obj:l, x:l.position.x, z:l.position.z })); });
+      // Move
+      all.forEach(o => { o.position.x += dx; o.position.z += dz; });
+      grps.forEach(g => { g.labels.forEach(l => { l.position.x += dx; l.position.z += dz; }); });
+      pushUndo({ type:'move', positions });
+      updatePropFields();
+      if (resizeHandles.length) updateHandlePositions(selectedObj);
+      return;
+    }
+  }
+
   // S — Select mode, M — Move mode
   if (e.key === 's' && !cmd) { document.querySelector('[data-mode="select"]').click(); return; }
   if (e.key === 'm' && !cmd) { document.querySelector('[data-mode="move"]').click(); return; }
