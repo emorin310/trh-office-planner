@@ -1262,22 +1262,18 @@ function showDeskShapeModal(desk) {
 
 function createFurnitureGeometry(type, w, h, d) {
   if (type === 'ldesk') {
-    // Symmetrical T-shape: wide front, centered narrower return at back
-    // This allows horseshoe arrangements when rotated
+    // Symmetrical L-shape: both legs equal width, square footprint
+    // Two L-desks rotated 180° from each other form a U shape
     const s = new THREE.Shape();
     const hw = w/2, hd = d/2;
-    const returnW = w * 0.4;  // width of the return (back leg)
-    const frontD = d * 0.45;  // depth of the front section
-    const hrw = returnW / 2;
-    // Start bottom-left of return, go clockwise
-    s.moveTo(-hrw, -hd);       // bottom-left of return
-    s.lineTo(hrw, -hd);        // bottom-right of return
-    s.lineTo(hrw, hd - frontD); // right side where front starts
-    s.lineTo(hw, hd - frontD);  // outer right of front
-    s.lineTo(hw, hd);           // top-right
-    s.lineTo(-hw, hd);          // top-left
-    s.lineTo(-hw, hd - frontD); // outer left of front
-    s.lineTo(-hrw, hd - frontD);// left side where front starts
+    const legT = Math.min(w, d) * 0.4; // leg thickness (same for both)
+    // L-shape: bottom leg runs full width, left leg runs full depth
+    s.moveTo(-hw, -hd);          // bottom-left corner
+    s.lineTo(hw, -hd);           // bottom-right corner
+    s.lineTo(hw, -hd + legT);    // up to top of bottom leg
+    s.lineTo(-hw + legT, -hd + legT); // inner corner of L
+    s.lineTo(-hw + legT, hd);    // up to top of left leg
+    s.lineTo(-hw, hd);           // top-left corner
     s.closePath();
     const geo = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false });
     geo.rotateX(-Math.PI / 2);
