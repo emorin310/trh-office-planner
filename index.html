@@ -651,6 +651,7 @@ function performWallCuts() {
 
     // Fill gaps between cuts with wall segments
     let pos = wb.start;
+    const wallBottom = wallY - wb.h/2;
     merged.forEach((cut, i) => {
       // Solid segment before this cut
       if (cut.start > pos + 0.05) addSeg(pos, cut.start, wb.h, wallY, wall.userData.name + ` (${i}L)`);
@@ -661,6 +662,13 @@ function performWallCuts() {
       if (lintelH > 0.1) {
         const lintelY = opTop + lintelH/2;
         addSeg(cut.start, cut.end, lintelH, lintelY, wall.userData.name + ` (${i}T)`);
+      }
+      // Sill below this cut (for windows and raised openings)
+      const opBottom = cut.opBottom || 0;
+      const sillH = opBottom - wallBottom;
+      if (sillH > 0.1) {
+        const sillY = wallBottom + sillH/2;
+        addSeg(cut.start, cut.end, sillH, sillY, wall.userData.name + ` (${i}S)`);
       }
       pos = cut.end;
     });
@@ -1090,7 +1098,7 @@ function selectObject(obj) {
     document.getElementById('prop-color').value = '#' + obj.material.color.getHexString();
     document.getElementById('btn-lock').textContent = obj.userData.fixed ? 'Unlock' : 'Lock';
     // Show W/D fields for walls/structures
-    const isResizable = obj.userData.wallClass || obj.userData.type === 'inner' || obj.userData.type === 'existing' || obj.userData.type === 'furniture';
+    const isResizable = obj.userData.wallClass || obj.userData.type === 'inner' || obj.userData.type === 'existing' || obj.userData.type === 'furniture' || obj.userData.type === 'opening';
     document.getElementById('prop-w-row').style.display = isResizable ? 'flex' : 'none';
     document.getElementById('prop-d-row').style.display = isResizable ? 'flex' : 'none';
     if (isResizable) createResizeHandles(obj);
