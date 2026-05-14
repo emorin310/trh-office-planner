@@ -452,7 +452,7 @@ function buildDimSprites() {
     const tex = new THREE.CanvasTexture(canvas);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
     sprite.position.set(obj.position.x, obj.userData.height + 2, obj.position.z);
-    sprite.scale.set(6, 1.5, 1);
+    sprite.scale.set(3, 0.75, 1);
     sprite.userData = { isDim: true };
     scene.add(sprite);
     dimSprites.push(sprite);
@@ -474,7 +474,7 @@ function buildDimSprites() {
     const tex = new THREE.CanvasTexture(canvas);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
     sprite.position.set(obj.position.x, obj.position.y + obj.userData.height/2 + 2, obj.position.z);
-    sprite.scale.set(6, 1.5, 1);
+    sprite.scale.set(3, 0.75, 1);
     sprite.userData = { isDim: true };
     scene.add(sprite);
     dimSprites.push(sprite);
@@ -1560,7 +1560,7 @@ document.getElementById('btn-dims').addEventListener('click', () => {
 document.getElementById('btn-label-size').addEventListener('click', () => {
   const sizes = [0.5, 1, 1.5, 2, 3]; labelScale = sizes[(sizes.indexOf(labelScale)+1)%sizes.length];
   labelSprites.forEach(s => { const b = s.userData.baseScale || {x:10,y:2.5}; s.scale.set(b.x*labelScale, b.y*labelScale, 1); });
-  dimSprites.forEach(s => s.scale.set(6*labelScale/2, 1.5*labelScale/2, 1));
+  dimSprites.forEach(s => s.scale.set(3*labelScale/2, 0.75*labelScale/2, 1));
   document.getElementById('btn-label-size').textContent = `Lbl Size: ${labelScale}×`;
 });
 
