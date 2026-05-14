@@ -697,13 +697,10 @@ function buildStructure() {
 
   // ==== RED: OUTER BUILDING WALLS (102'×96') — IMMOVABLE ====
   const bw = mats.outerWall;
+  // West wall — one continuous wall; loading dock/garage door openings are cut dynamically
+  createBox(BLDG_W, WH_WALL_H, WALL_T, bw, { x: BLDG_W/2, y: 0, z: 0 }, 'West Wall', { fixed: true, type: 'structure', wallClass: 'outer' });
   const ldW = 18.97, gdW = 15.80;
   const g1 = 20, g2 = g1 + ldW + 4;
-  // West wall segments
-  createBox(g1, WH_WALL_H, WALL_T, bw, { x: g1/2, y: 0, z: 0 }, 'West Wall (S)', { fixed: true, type: 'structure', wallClass: 'outer' });
-  createBox(4, WH_WALL_H, WALL_T, bw, { x: g1 + ldW + 2, y: 0, z: 0 }, 'West Wall (Mid)', { fixed: true, type: 'structure', wallClass: 'outer' });
-  const rW = BLDG_W - (g2 + gdW);
-  createBox(rW, WH_WALL_H, WALL_T, bw, { x: g2 + gdW + rW/2, y: 0, z: 0 }, 'West Wall (N)', { fixed: true, type: 'structure', wallClass: 'outer' });
   createBox(ldW, 3, WALL_T*2, mats.door, { x: g1 + ldW/2, y: 0, z: 0 }, 'Loading Dock (18\'11")', { type: 'structure', furnitureType: 'loading-dock' });
   addLabel('Loading Dock\n18\'11⅝"', g1 + ldW/2, 5, 3, 0xaa8844);
   createBox(gdW, 3, WALL_T*2, mats.door, { x: g2 + gdW/2, y: 0, z: 0 }, 'Garage Door (15\'10")', { type: 'structure', furnitureType: 'garage-door' });
@@ -1963,6 +1960,13 @@ function deserializeLayout(data) {
     if (members.length >= 2) {
       groups.push({ id: g.id, members, labels });
       nextGroupId = Math.max(nextGroupId, g.id + 1);
+    }
+  });
+
+  // Re-add orphaned moveable scene children (e.g. loading docks from buildStructure)
+  scene.children.forEach(c => {
+    if (c.isMesh && c.userData && !c.userData.fixed && c.userData.furnitureType && !moveableObjects.includes(c) && OPENING_TYPES.includes(c.userData.furnitureType)) {
+      moveableObjects.push(c);
     }
   });
 
