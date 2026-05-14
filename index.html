@@ -1145,13 +1145,12 @@ canvas.addEventListener('mousedown', (e) => {
     if (pt) {
       pt.x = snap(pt.x); pt.z = snap(pt.z);
       if (placeType === 'text') {
-        const text = prompt('Label text (use \\n for newlines):');
-        if (text) {
-          const t = text.replace(/\\n/g, '\n');
-          addLabel(t, pt.x, 3, pt.z, 0x44cc66);
+        showLabelEditor('', (newText) => {
+          addLabel(newText, pt.x, 3, pt.z, 0x44cc66);
           const lbl = labelSprites[labelSprites.length - 1];
+          pushUndo({ type:'add-label', label: lbl });
           selectObject(lbl);
-        }
+        });
         return;
       }
       const m = placeObject(placeType, pt);
@@ -1331,6 +1330,38 @@ canvas.addEventListener('mouseup', () => {
 canvas.addEventListener('wheel', (e) => { orbitState.radius = Math.max(5, Math.min(200, orbitState.radius + e.deltaY * 0.05)); updateOrbitCamera(); e.preventDefault(); }, { passive: false });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+// Reusable inline label editor modal
+function showLabelEditor(initialText, onSave) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:16px;min-width:320px;';
+  box.innerHTML = '<div style="color:#ccc;font-size:12px;margin-bottom:8px;">' + (initialText ? 'Edit label text:' : 'Enter label text:') + '</div>';
+  const ta = document.createElement('textarea');
+  ta.style.cssText = 'width:100%;min-height:80px;background:#1a1a3e;border:1px solid #2a2a5e;border-radius:4px;color:#fff;font-size:13px;padding:8px;resize:vertical;font-family:inherit;';
+  ta.value = initialText;
+  box.appendChild(ta);
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end;';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'padding:6px 14px;background:#1a1a3e;border:1px solid #2a2a5e;border-radius:4px;color:#ccc;cursor:pointer;font-size:12px;';
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save';
+  saveBtn.style.cssText = 'padding:6px 14px;background:#e94560;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;';
+  btns.appendChild(cancelBtn); btns.appendChild(saveBtn);
+  box.appendChild(btns); overlay.appendChild(box); document.body.appendChild(overlay);
+  ta.focus(); if (initialText) ta.select();
+  const close = () => { document.body.removeChild(overlay); };
+  cancelBtn.onclick = close;
+  overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
+  saveBtn.onclick = () => { const t = ta.value.trim(); if (t) onSave(t); close(); };
+  ta.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') close();
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) saveBtn.click();
+  });
+}
+
 // Double-click to edit label text
 canvas.addEventListener('dblclick', (e) => {
   const rect = canvas.getBoundingClientRect();
@@ -1340,42 +1371,12 @@ canvas.addEventListener('dblclick', (e) => {
   if (hits.length > 0) {
     const lbl = hits[0].object;
     const oldText = lbl.userData.labelText || '';
-    // Inline text editor overlay
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
-    const box = document.createElement('div');
-    box.style.cssText = 'background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:16px;min-width:320px;';
-    box.innerHTML = '<div style="color:#ccc;font-size:12px;margin-bottom:8px;">Edit label text:</div>';
-    const ta = document.createElement('textarea');
-    ta.style.cssText = 'width:100%;min-height:80px;background:#1a1a3e;border:1px solid #2a2a5e;border-radius:4px;color:#fff;font-size:13px;padding:8px;resize:vertical;font-family:inherit;';
-    ta.value = oldText;
-    box.appendChild(ta);
-    const btns = document.createElement('div');
-    btns.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end;';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.style.cssText = 'padding:6px 14px;background:#1a1a3e;border:1px solid #2a2a5e;border-radius:4px;color:#ccc;cursor:pointer;font-size:12px;';
-    const saveBtn = document.createElement('button');
-    saveBtn.textContent = 'Save';
-    saveBtn.style.cssText = 'padding:6px 14px;background:#e94560;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;';
-    btns.appendChild(cancelBtn); btns.appendChild(saveBtn);
-    box.appendChild(btns); overlay.appendChild(box); document.body.appendChild(overlay);
-    ta.focus(); ta.select();
-    const close = () => { document.body.removeChild(overlay); };
-    cancelBtn.onclick = close;
-    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
-    saveBtn.onclick = () => {
-      const newText = ta.value;
+    showLabelEditor(oldText, (newText) => {
       if (newText !== oldText) {
         pushUndo({ type: 'edit-label', label: lbl, oldText, newText });
         updateLabelText(lbl, newText);
         selectObject(lbl);
       }
-      close();
-    };
-    ta.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape') close();
-      if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { saveBtn.click(); }
     });
   }
 });
