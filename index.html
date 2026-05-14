@@ -124,9 +124,7 @@
 
     <div class="tool-section">
       <h3>Mode</h3>
-      <button class="tool-btn active" data-mode="select"><span class="icon">⊹</span> Select</button>
-      <button class="tool-btn" data-mode="move"><span class="icon">✥</span> Move</button>
-      <button class="tool-btn" data-mode="rotate"><span class="icon">↻</span> Rotate</button>
+      <button class="tool-btn active" data-mode="select"><span class="icon">⊹</span> Select / Move</button>
     </div>
 
     <div class="tool-section">
@@ -1794,15 +1792,38 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape') { placeType = null; placeRotation = 0; removeGhost(); selectObject(null); document.querySelectorAll('[data-place]').forEach(b => b.classList.remove('active')); }
 
-  // R — Rotate placement ghost or selected object 90°
-  if (e.key === 'r' || e.key === 'R') {
+  // R — Rotate placement ghost 90°, or rotate selected object(s)/group 90°
+  if ((e.key === 'r' || e.key === 'R') && !cmd) {
     if (placeType && ghostObj) {
       placeRotation = (placeRotation + Math.PI / 2) % (Math.PI * 2);
       ghostObj.rotation.y = placeRotation;
-    } else if (selectedObj && !selectedObj.userData.fixed) {
-      selectedObj.rotation.y = (selectedObj.rotation.y + Math.PI / 2) % (Math.PI * 2);
-      if (OPENING_TYPES.includes(selectedObj.userData.furnitureType)) performWallCuts();
-      updatePropFields();
+    } else {
+      const all = getAllSelected();
+      if (all.length) {
+        const angle = Math.PI / 2;
+        const grp = getGroup(all[0]);
+        if (grp && grp.members.length >= 2) {
+          const allItems = [...grp.members, ...grp.labels];
+          const prevState = allItems.map(o => ({ obj:o, prevRot: o.rotation.y, px: o.position.x, pz: o.position.z }));
+          let cx = 0, cz = 0;
+          grp.members.forEach(m => { cx += m.position.x; cz += m.position.z; });
+          cx /= grp.members.length; cz /= grp.members.length;
+          const cos = Math.cos(angle), sin = Math.sin(angle);
+          allItems.forEach(o => {
+            const dx = o.position.x - cx, dz = o.position.z - cz;
+            o.position.x = cx + dx * cos - dz * sin;
+            o.position.z = cz + dx * sin + dz * cos;
+            o.rotation.y += angle;
+          });
+          pushUndo({ type:'group-rotate', items: prevState });
+        } else {
+          const prevRots = all.map(o => ({ obj:o, prevRot: o.rotation.y }));
+          all.forEach(o => o.rotation.y += angle);
+          pushUndo({ type:'rotate', items: prevRots });
+        }
+        if (all.some(o => OPENING_TYPES.includes(o.userData.furnitureType))) performWallCuts();
+        updatePropFields();
+      }
     }
   }
 
@@ -2030,43 +2051,6 @@ document.addEventListener('keydown', (e) => {
 
   // S — Select mode, M — Move mode
   if (e.key === 's' && !cmd) { document.querySelector('[data-mode="select"]').click(); return; }
-  if (e.key === 'm' && !cmd) { document.querySelector('[data-mode="move"]').click(); return; }
-
-  // R — Rotate mode (no selection) or rotate object (with selection)
-  if (e.key === 'r' && !cmd) {
-    const all = getAllSelected();
-    if (!all.length && !(selectedObj && selectedObj.userData.isLabel)) {
-      document.querySelector('[data-mode="rotate"]').click(); return;
-    }
-    if (all.length) {
-      const grp = getGroup(all[0]);
-      const angle = Math.PI / 4;
-      if (grp && grp.members.length >= 2) {
-        // Rotate entire group around its center
-        const allItems = [...grp.members, ...grp.labels];
-        const prevState = allItems.map(o => ({ obj:o, prevRot: o.rotation.y, px: o.position.x, pz: o.position.z }));
-        // Compute center of group members
-        let cx = 0, cz = 0;
-        grp.members.forEach(m => { cx += m.position.x; cz += m.position.z; });
-        cx /= grp.members.length; cz /= grp.members.length;
-        // Rotate each item around center
-        const cos = Math.cos(angle), sin = Math.sin(angle);
-        allItems.forEach(o => {
-          const dx = o.position.x - cx, dz = o.position.z - cz;
-          o.position.x = cx + dx * cos - dz * sin;
-          o.position.z = cz + dx * sin + dz * cos;
-          o.rotation.y += angle;
-        });
-        pushUndo({ type:'group-rotate', items: prevState });
-      } else {
-        // Single object rotation
-        const prevRots = all.map(o => ({ obj:o, prevRot: o.rotation.y }));
-        all.forEach(o => o.rotation.y += angle);
-        pushUndo({ type:'rotate', items: prevRots });
-      }
-      updatePropFields();
-    }
-  }
 });
 
 // ============================================================
