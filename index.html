@@ -984,16 +984,35 @@ canvas.addEventListener('mousedown', (e) => {
   const obj = getClickedObject(e);
   if (obj) {
     if (e.shiftKey) { if (!obj.userData.isLabel) toggleMultiSelect(obj); }
-    else { selectObject(obj); }
+    else {
+      selectObject(obj);
+      // Auto-select all group members when clicking a grouped object
+      if (!obj.userData.isLabel) {
+        const grp = getGroup(obj);
+        if (grp) {
+          multiSelected = [];
+          grp.members.forEach(m => {
+            if (m !== obj && !m.userData.fixed) {
+              multiSelected.push(m);
+              if (m.material && m.material.emissive) m.material.emissive.setHex(0x333300);
+            }
+          });
+          updateSelectionStatus();
+        }
+      }
+    }
     if ((mode === 'move' || mode === 'select') && !obj.userData.fixed && !e.shiftKey) {
       isDragging = true;
       const pt = getFloorPoint(e); if (pt) { dragOffset.subVectors(obj.position, pt); dragOffset.y = 0; }
-      // Save pre-drag positions for undo (obj + group members + labels)
+      // Save pre-drag positions for undo (obj + group members + labels + multi-selected)
       preDragPositions = [];
       const grp = getGroup(obj);
+      const allSel = getAllSelected();
       if (grp) {
         grp.members.forEach(m => preDragPositions.push({ obj:m, x:m.position.x, z:m.position.z }));
         grp.labels.forEach(l => preDragPositions.push({ obj:l, x:l.position.x, z:l.position.z }));
+      } else if (allSel.length > 1) {
+        allSel.forEach(m => preDragPositions.push({ obj:m, x:m.position.x, z:m.position.z }));
       } else {
         preDragPositions.push({ obj, x:obj.position.x, z:obj.position.z });
       }
@@ -1061,11 +1080,12 @@ canvas.addEventListener('mousemove', (e) => {
       const newX = ws.x, newZ = ws.z;
       const dx = newX - selectedObj.position.x, dz = newZ - selectedObj.position.z;
       selectedObj.position.x = newX; selectedObj.position.z = newZ;
-      // Move group members + labels together (only for non-label primary selection)
+      // Move multi-selected objects together
+      multiSelected.forEach(m => { m.position.x += dx; m.position.z += dz; });
+      // Move group labels together (only for non-label primary selection)
       if (!selectedObj.userData.isLabel) {
         const grp = getGroup(selectedObj);
         if (grp) {
-          grp.members.forEach(m => { if (m !== selectedObj) { m.position.x += dx; m.position.z += dz; }});
           grp.labels.forEach(l => { l.position.x += dx; l.position.z += dz; });
         }
       }
