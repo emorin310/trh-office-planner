@@ -906,7 +906,6 @@ canvas.addEventListener('mousemove', (e) => {
       const newX = ws.x, newZ = ws.z;
       const dx = newX - selectedObj.position.x, dz = newZ - selectedObj.position.z;
       selectedObj.position.x = newX; selectedObj.position.z = newZ;
-      if (ws.rot !== null && !selectedObj.userData.isLabel) selectedObj.rotation.y = ws.rot;
       // Move group members + labels together (only for non-label primary selection)
       if (!selectedObj.userData.isLabel) {
         const grp = getGroup(selectedObj);
