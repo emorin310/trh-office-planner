@@ -134,8 +134,7 @@
       <button class="tool-btn" data-place="desk"><span class="icon">▭</span> Desk</button>
       <button class="tool-btn" data-place="ldesk"><span class="icon">⌐</span> L-Desk</button>
       <button class="tool-btn" data-place="chair"><span class="icon">◯</span> Chair</button>
-      <button class="tool-btn" data-place="table-sm"><span class="icon">▢</span> Table 3×3</button>
-      <button class="tool-btn" data-place="table-lg"><span class="icon">▢</span> Table 6×3</button>
+      <button class="tool-btn" data-place="table"><span class="icon">▢</span> Table</button>
       <button class="tool-btn" data-place="cabinet"><span class="icon">▮</span> Cabinet</button>
       <button class="tool-btn" data-place="bookshelf"><span class="icon">▯</span> Shelf</button>
       <button class="tool-btn" data-place="couch"><span class="icon">▬</span> Couch</button>
@@ -545,24 +544,27 @@ function wallSnap(obj, gx, gz) {
         }
       }
     });
-    // Also check moveable walls
+    // Also check moveable walls (account for wall rotation)
     moveableObjects.forEach(c => {
       if (c === obj || !c.userData.wallClass) return;
       if (OPENING_TYPES.includes(c.userData.furnitureType)) return;
       const ww = c.userData.width || 1, wd = c.userData.depth || 1;
-      const isHoriz = ww > wd * 2, isVert = wd > ww * 2;
+      // Account for wall rotation: if rotated ~90°, swap effective width/depth
+      const rotated = Math.abs(Math.sin(c.rotation.y)) > 0.5;
+      const effW = rotated ? wd : ww, effD = rotated ? ww : wd;
+      const isHoriz = effW > effD * 2, isVert = effD > effW * 2;
       if (!isHoriz && !isVert) return;
       if (isHoriz) {
         const dz = Math.abs(gz - c.position.z);
         if (dz < bestDist) {
-          const wallStart = c.position.x - ww/2, wallEnd = c.position.x + ww/2;
-          if (gx >= wallStart - 2 && gx <= wallEnd + 2) { bestDist = dz; bestX = gx; bestZ = c.position.z; bestRot = c.rotation.y; }
+          const wallStart = c.position.x - effW/2, wallEnd = c.position.x + effW/2;
+          if (gx >= wallStart - 2 && gx <= wallEnd + 2) { bestDist = dz; bestX = gx; bestZ = c.position.z; bestRot = 0; }
         }
       } else {
         const dx = Math.abs(gx - c.position.x);
         if (dx < bestDist) {
-          const wallStart = c.position.z - wd/2, wallEnd = c.position.z + wd/2;
-          if (gz >= wallStart - 2 && gz <= wallEnd + 2) { bestDist = dx; bestX = c.position.x; bestZ = gz; bestRot = c.rotation.y; }
+          const wallStart = c.position.z - effD/2, wallEnd = c.position.z + effD/2;
+          if (gz >= wallStart - 2 && gz <= wallEnd + 2) { bestDist = dx; bestX = c.position.x; bestZ = gz; bestRot = Math.PI / 2; }
         }
       }
     });
@@ -1045,7 +1047,7 @@ let ghostObj = null;
 function getFurnitureDims(type) {
   return ({
     'desk': {w:5,h:2.5,d:2.5}, 'ldesk': {w:5,h:2.5,d:5}, 'chair': {w:1.5,h:2.8,d:1.5},
-    'table-sm': {w:3,h:2.5,d:3}, 'table-lg': {w:6,h:2.5,d:3}, 'cabinet': {w:3,h:4,d:1.5},
+    'table': {w:4,h:2.5,d:3}, 'cabinet': {w:3,h:4,d:1.5},
     'bookshelf': {w:4,h:5,d:1}, 'couch': {w:6,h:2.5,d:2.5},
     'wall': {w:8,h:WALL_H,d:WALL_T}, 'half-wall': {w:8,h:HALF_WALL_H,d:WALL_T},
     'door': {w:3,h:7,d:WALL_T*2}, 'window': {w:4,h:3,d:WALL_T}, 'partition': {w:6,h:WALL_H,d:WALL_T},
@@ -1056,13 +1058,18 @@ function getMaterialForType(type) {
   if (['wall','half-wall','partition'].includes(type)) return mats.innerWall;
   if (type === 'door' || type === 'bay-door' || type === 'loading-dock' || type === 'garage-door') return mats.door; if (type === 'window') return mats.window;
   if (type === 'chair') return mats.chair; if (type === 'couch') return mats.couch;
-  if (['table-sm','table-lg'].includes(type)) return mats.table;
+  if (type === 'table') return mats.table;
   if (['cabinet','bookshelf'].includes(type)) return mats.cabinet;
   return mats.desk;
 }
 function createGhostForType(type) {
   removeGhost(); const dims = getFurnitureDims(type); if (!dims) return;
-  const geo = type === 'chair' ? new THREE.CylinderGeometry(dims.w/2, dims.w/2, dims.h, 16) : new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+  let geo;
+  if (type === 'ldesk' || type === 'chair') {
+    geo = createFurnitureGeometry(type, dims.w, dims.h, dims.d);
+  } else {
+    geo = new THREE.BoxGeometry(dims.w, dims.h, dims.d);
+  }
   ghostObj = new THREE.Mesh(geo, mats.ghost.clone()); ghostObj.userData = { isGhost: true }; scene.add(ghostObj);
 }
 function removeGhost() { if (ghostObj) { scene.remove(ghostObj); ghostObj = null; } }
@@ -1145,16 +1152,114 @@ function showDeskShapeModal(desk) {
   overlay.addEventListener('click', (ev) => { if (ev.target === overlay) document.body.removeChild(overlay); });
 }
 
+function createFurnitureGeometry(type, w, h, d) {
+  if (type === 'ldesk') {
+    const s = new THREE.Shape();
+    const hw = w/2, hd = d/2;
+    const legW = w * 0.4;
+    s.moveTo(-hw, -hd);
+    s.lineTo(hw, -hd);
+    s.lineTo(hw, hd);
+    s.lineTo(-hw + legW, hd);
+    s.lineTo(-hw + legW, -hd + d * 0.45);
+    s.lineTo(-hw, -hd + d * 0.45);
+    s.closePath();
+    const geo = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false });
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, h/2, 0);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    geo.translate(-(bb.max.x+bb.min.x)/2, 0, -(bb.max.z+bb.min.z)/2);
+    return geo;
+  }
+  if (type === 'chair') {
+    const r = Math.min(w, d) / 2;
+    const s = new THREE.Shape();
+    s.moveTo(-r, -r);
+    s.lineTo(r, -r);
+    s.lineTo(r, 0);
+    s.quadraticCurveTo(r, r, 0, r);
+    s.quadraticCurveTo(-r, r, -r, 0);
+    s.closePath();
+    const seatH = h * 0.55;
+    const geo = new THREE.ExtrudeGeometry(s, { depth: seatH, bevelEnabled: false });
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, seatH/2, 0);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    geo.translate(-(bb.max.x+bb.min.x)/2, 0, -(bb.max.z+bb.min.z)/2);
+    return geo;
+  }
+  if (type === 'bookshelf') {
+    return new THREE.BoxGeometry(w, h, d);
+  }
+  if (type === 'cabinet') {
+    return new THREE.BoxGeometry(w, h, d);
+  }
+  return new THREE.BoxGeometry(w, h, d);
+}
+
+function addFurnitureDetails(mesh, type) {
+  const w = mesh.userData.width, h = mesh.userData.height, d = mesh.userData.depth;
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3e, roughness: 0.8 });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a3a4e, roughness: 0.6 });
+
+  if (type === 'chair') {
+    const backH = h * 0.8;
+    const backT = d * 0.15;
+    const r = Math.min(w, d) / 2;
+    const backGeo = new THREE.BoxGeometry(w * 0.85, backH, backT);
+    const back = new THREE.Mesh(backGeo, frameMat.clone());
+    back.material.color.copy(mesh.material.color);
+    back.material.color.multiplyScalar(0.75);
+    back.position.set(0, backH/2 - h/2 + h*0.1, -(r - backT/2));
+    back.userData = { isDetail: true };
+    mesh.add(back);
+  }
+
+  if (type === 'bookshelf') {
+    const shelfCount = Math.max(2, Math.floor(h / 1.5));
+    const inset = 0.15;
+    for (let i = 1; i < shelfCount; i++) {
+      const sy = -h/2 + (h / shelfCount) * i;
+      const shelfGeo = new THREE.BoxGeometry(w - inset*2, 0.12, d * 0.9);
+      const shelf = new THREE.Mesh(shelfGeo, darkMat.clone());
+      shelf.position.set(0, sy, 0);
+      shelf.userData = { isDetail: true };
+      mesh.add(shelf);
+    }
+    const backGeo = new THREE.BoxGeometry(w - inset*2, h - inset*2, 0.08);
+    const backPanel = new THREE.Mesh(backGeo, darkMat.clone());
+    backPanel.position.set(0, 0, -d/2 + 0.1);
+    backPanel.userData = { isDetail: true };
+    mesh.add(backPanel);
+  }
+
+  if (type === 'cabinet') {
+    const drawerCount = Math.max(2, Math.floor(h / 1.2));
+    const gap = h / drawerCount;
+    for (let i = 0; i < drawerCount; i++) {
+      const dy = -h/2 + gap * (i + 0.5);
+      const lineGeo = new THREE.BoxGeometry(w * 0.85, 0.06, 0.06);
+      const line = new THREE.Mesh(lineGeo, darkMat.clone());
+      line.position.set(0, dy + gap * 0.38, d/2 + 0.01);
+      line.userData = { isDetail: true };
+      mesh.add(line);
+      const handleGeo = new THREE.BoxGeometry(0.3, 0.1, 0.12);
+      const handle = new THREE.Mesh(handleGeo, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.5 }));
+      handle.position.set(0, dy, d/2 + 0.05);
+      handle.userData = { isDetail: true };
+      mesh.add(handle);
+    }
+  }
+}
+
 function placeObject(type, position, nameOverride, rotDeg) {
   const dims = getFurnitureDims(type); if (!dims) return null;
   const mat = getMaterialForType(type);
   const name = nameOverride || (type.charAt(0).toUpperCase() + type.slice(1).replace('-', ' '));
   let mesh;
-  if (type === 'chair') {
-    mesh = new THREE.Mesh(new THREE.CylinderGeometry(dims.w/2, dims.w/2, dims.h, 16), mat.clone());
-    mesh.position.set(position.x, dims.h/2, position.z);
-  } else if (type === 'door' || type === 'bay-door' || type === 'loading-dock' || type === 'garage-door') {
-    // Door/dock renders as dark cutout that visually punches through walls
+  if (type === 'door' || type === 'bay-door' || type === 'loading-dock' || type === 'garage-door') {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mats.door.clone());
     mesh.position.set(position.x, dims.h/2, position.z);
     mesh.renderOrder = 1;
@@ -1162,7 +1267,8 @@ function placeObject(type, position, nameOverride, rotDeg) {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mat.clone());
     mesh.position.set(position.x, 4 + dims.h/2, position.z);
   } else {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mat.clone());
+    const geo = createFurnitureGeometry(type, dims.w, dims.h, dims.d);
+    mesh = new THREE.Mesh(geo, mat.clone());
     mesh.position.set(position.x, dims.h/2, position.z);
   }
   if (rotDeg) mesh.rotation.y = THREE.MathUtils.degToRad(rotDeg);
@@ -1172,6 +1278,7 @@ function placeObject(type, position, nameOverride, rotDeg) {
     fixed: false, width: dims.w, height: dims.h, depth: dims.d,
     originalColor: mat.color.getHex(), furnitureType: type, wallClass: ['wall','half-wall','partition'].includes(type) ? 'inner' : null,
   };
+  addFurnitureDetails(mesh, type);
   scene.add(mesh); moveableObjects.push(mesh); return mesh;
 }
 
@@ -1279,6 +1386,15 @@ function getClickedObject(e) {
   // Check moveable objects first, then labels
   const hit = raycaster.intersectObjects(moveableObjects.filter(o=>o.visible), false)[0];
   if (hit) return hit.object;
+  // Check wall segments — resolve click back to original wall
+  const wallSegs = wallCutState.flatMap(cut => cut.segments);
+  if (wallSegs.length > 0) {
+    const segHit = raycaster.intersectObjects(wallSegs, false)[0];
+    if (segHit) {
+      const cut = wallCutState.find(c => c.segments.includes(segHit.object));
+      if (cut && cut.original) return cut.original;
+    }
+  }
   const lhit = raycaster.intersectObjects(labelSprites.filter(l=>l.visible), false)[0];
   if (lhit) return lhit.object;
   return null;
@@ -1310,7 +1426,16 @@ canvas.addEventListener('mousedown', (e) => {
         return;
       }
       const m = placeObject(placeType, pt);
-      if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); if (OPENING_TYPES.includes(placeType)) performWallCuts(); }
+      if (m) {
+        // Auto-snap openings to nearest wall on placement
+        if (OPENING_TYPES.includes(placeType)) {
+          const ws = wallSnap(m, m.position.x, m.position.z);
+          m.position.x = ws.x; m.position.z = ws.z;
+          if (ws.rot !== null) m.rotation.y = ws.rot;
+          performWallCuts();
+        }
+        pushUndo({ type:'add', obj:m }); selectObject(m);
+      }
     }
     return;
   }
@@ -1428,6 +1553,9 @@ canvas.addEventListener('mousemove', (e) => {
       const newX = ws.x, newZ = ws.z;
       const dx = newX - selectedObj.position.x, dz = newZ - selectedObj.position.z;
       selectedObj.position.x = newX; selectedObj.position.z = newZ;
+      if (ws.rot !== null && OPENING_TYPES.includes(selectedObj.userData.furnitureType)) {
+        selectedObj.rotation.y = ws.rot;
+      }
       // Move multi-selected objects together
       multiSelected.forEach(m => { m.position.x += dx; m.position.z += dz; });
       // Move group labels together (only for non-label primary selection)
@@ -1538,7 +1666,7 @@ canvas.addEventListener('dblclick', (e) => {
     return;
   }
   // Check desks/tables
-  const deskTypes = ['desk','ldesk','table-sm','table-lg'];
+  const deskTypes = ['desk','ldesk','table'];
   const objHits = rc.intersectObjects(moveableObjects);
   if (objHits.length > 0) {
     const obj = objHits[0].object;
@@ -1846,11 +1974,21 @@ document.getElementById('prop-color').addEventListener('input', e => { if (selec
 function resizeObject(obj, newW, newD) {
   if (!obj) return;
   const h = obj.userData.height || WALL_H;
+  const ft = obj.userData.furnitureType;
   obj.geometry.dispose();
-  obj.geometry = new THREE.BoxGeometry(newW, h, newD);
+  if (['ldesk','chair','bookshelf','cabinet'].includes(ft)) {
+    obj.geometry = createFurnitureGeometry(ft, newW, h, newD);
+  } else {
+    obj.geometry = new THREE.BoxGeometry(newW, h, newD);
+  }
   obj.userData.width = newW;
   obj.userData.depth = newD;
-  obj.position.y = h / 2; // re-center vertically
+  obj.position.y = h / 2;
+  // Remove old detail children and re-add
+  const toRemove = [];
+  obj.children.forEach(c => { if (c.userData && c.userData.isDetail) toRemove.push(c); });
+  toRemove.forEach(c => obj.remove(c));
+  addFurnitureDetails(obj, ft);
 }
 document.getElementById('prop-w').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, parseFloat(e.target.value), selectedObj.userData.depth); }});
 document.getElementById('prop-d').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { resizeObject(selectedObj, selectedObj.userData.width, parseFloat(e.target.value)); }});
@@ -2130,13 +2268,20 @@ function deserializeLayout(data) {
 
   // Rebuild objects
   (data.objects || []).forEach(item => {
+    // Map legacy types
+    const ft = item.furnitureType === 'table-sm' || item.furnitureType === 'table-lg' ? 'table' : item.furnitureType;
     const deskShape = item.deskShape || null;
-    const isDeskType = ['desk','ldesk','table-sm','table-lg'].includes(item.furnitureType);
-    const geo = (isDeskType && deskShape && deskShape !== 'rectangular') ?
-      createDeskGeometry(item.w, item.h, item.d, deskShape) :
-      new THREE.BoxGeometry(item.w, item.h, item.d);
+    const isDeskType = ['desk','ldesk','table-sm','table-lg','table'].includes(ft);
+    let geo;
+    if (isDeskType && deskShape && deskShape !== 'rectangular') {
+      geo = createDeskGeometry(item.w, item.h, item.d, deskShape);
+    } else if (['ldesk','chair','bookshelf','cabinet'].includes(ft)) {
+      geo = createFurnitureGeometry(ft, item.w, item.h, item.d);
+    } else {
+      geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+    }
     let mat;
-    if (['door','bay-door','loading-dock','garage-door'].includes(item.furnitureType)) {
+    if (['door','bay-door','loading-dock','garage-door'].includes(ft)) {
       mat = mats.door.clone();
     } else {
       mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
@@ -2146,12 +2291,13 @@ function deserializeLayout(data) {
     m.position.set(item.px, item.py, item.pz);
     m.rotation.y = item.ry || 0;
     m.castShadow = true; m.receiveShadow = true;
-    const isDock = ['bay-door','loading-dock','garage-door'].includes(item.furnitureType) || /loading dock|garage door|bay door/i.test(item.name);
+    const isDock = ['bay-door','loading-dock','garage-door'].includes(ft) || /loading dock|garage door|bay door/i.test(item.name);
     m.userData = {
-      name: item.name, type: item.type, furnitureType: item.furnitureType || item.type,
+      name: item.name, type: item.type, furnitureType: ft,
       fixed: isDock ? false : item.fixed, width: item.w, height: item.h, depth: item.d,
       originalColor: item.color, wallClass: item.wallClass, deskShape: deskShape
     };
+    addFurnitureDetails(m, ft);
     scene.add(m); moveableObjects.push(m);
   });
 
