@@ -571,6 +571,116 @@ function wallSnap(obj, gx, gz) {
     return { x: bestX, z: bestZ, rot: bestRot };
   }
 
+  // Wall corner snapping: snap both axes simultaneously for clean 90° corners
+  if (obj.userData.wallClass) {
+    const ow = obj.userData.width || 1, od = obj.userData.depth || 1;
+    const objHoriz = ow > od * 2, objVert = od > ow * 2;
+    if (objHoriz || objVert) {
+      const allWalls = [];
+      scene.children.forEach(c => {
+        if (c === obj || !c.isMesh || !c.userData || !c.userData.wallClass || c.userData.isWallSegment) return;
+        if (OPENING_TYPES.includes(c.userData.furnitureType)) return;
+        allWalls.push(c);
+      });
+      moveableObjects.forEach(c => {
+        if (c === obj || !c.userData.wallClass || c.userData.isWallSegment) return;
+        if (OPENING_TYPES.includes(c.userData.furnitureType)) return;
+        if (!allWalls.includes(c)) allWalls.push(c);
+      });
+      let bestCornerDist = WALL_SNAP_DIST * 2.5;
+      let cornerResult = null;
+      allWalls.forEach(t => {
+        const tw = t.userData.width || 1, td = t.userData.depth || 1;
+        const tHoriz = tw > td * 2, tVert = td > tw * 2;
+        if (!tHoriz && !tVert) return;
+        const tx = t.position.x, tz = t.position.z;
+        // Same orientation: end-to-end alignment (collinear walls)
+        if (objHoriz && tHoriz) {
+          // Both horizontal — snap ends together and align Z
+          const objEnds = [gx - ow/2, gx + ow/2];
+          const tEnds = [tx - tw/2, tx + tw/2];
+          for (const oe of objEnds) {
+            for (const te of tEnds) {
+              const dx = Math.abs(oe - te), dz = Math.abs(gz - tz);
+              const dist = dx + dz;
+              if (dx < WALL_SNAP_DIST && dz < WALL_SNAP_DIST * 2 && dist < bestCornerDist) {
+                bestCornerDist = dist;
+                cornerResult = { x: gx + (te - oe), z: tz, rot: null };
+              }
+            }
+          }
+        } else if (objVert && tVert) {
+          // Both vertical — snap ends together and align X
+          const objEnds = [gz - od/2, gz + od/2];
+          const tEnds = [tz - td/2, tz + td/2];
+          for (const oe of objEnds) {
+            for (const te of tEnds) {
+              const dz = Math.abs(oe - te), dx = Math.abs(gx - tx);
+              const dist = dx + dz;
+              if (dz < WALL_SNAP_DIST && dx < WALL_SNAP_DIST * 2 && dist < bestCornerDist) {
+                bestCornerDist = dist;
+                cornerResult = { x: tx, z: gz + (te - oe), rot: null };
+              }
+            }
+          }
+        } else {
+          // Perpendicular walls — corner snap
+          // Dragged wall endpoints along its axis, target endpoints along its axis
+          if (objHoriz) {
+            // Obj horizontal (runs X), target vertical (runs Z)
+            const objEndXs = [gx - ow/2, gx + ow/2]; // X ends of dragged wall
+            const tEndZs = [tz - td/2, tz + td/2];    // Z ends of target wall
+            for (const oex of objEndXs) {
+              for (const tez of tEndZs) {
+                // Corner: obj end-X meets target center-X, obj center-Z meets target end-Z
+                // Flush: obj end touches target face (offset by half thickness)
+                const candidates = [
+                  { snapX: gx + (tx - oex), snapZ: tez },                           // obj end at target center, obj face at target end
+                  { snapX: gx + ((tx - tw/2) - oex), snapZ: tez + od/2 },           // obj end at target left face, obj top at target end
+                  { snapX: gx + ((tx + tw/2) - oex), snapZ: tez + od/2 },           // obj end at target right face, obj top at target end
+                  { snapX: gx + ((tx - tw/2) - oex), snapZ: tez - od/2 },           // obj end at target left face, obj bottom at target end
+                  { snapX: gx + ((tx + tw/2) - oex), snapZ: tez - od/2 },           // obj end at target right face, obj bottom at target end
+                ];
+                for (const c of candidates) {
+                  const dx = Math.abs(c.snapX - gx), dz = Math.abs(c.snapZ - gz);
+                  const dist = dx + dz;
+                  if (dx < WALL_SNAP_DIST * 2 && dz < WALL_SNAP_DIST * 2 && dist < bestCornerDist) {
+                    bestCornerDist = dist;
+                    cornerResult = { x: c.snapX, z: c.snapZ, rot: null };
+                  }
+                }
+              }
+            }
+          } else {
+            // Obj vertical (runs Z), target horizontal (runs X)
+            const objEndZs = [gz - od/2, gz + od/2]; // Z ends of dragged wall
+            const tEndXs = [tx - tw/2, tx + tw/2];   // X ends of target wall
+            for (const oez of objEndZs) {
+              for (const tex of tEndXs) {
+                const candidates = [
+                  { snapX: tex, snapZ: gz + (tz - oez) },
+                  { snapX: tex + ow/2, snapZ: gz + ((tz - td/2) - oez) },
+                  { snapX: tex + ow/2, snapZ: gz + ((tz + td/2) - oez) },
+                  { snapX: tex - ow/2, snapZ: gz + ((tz - td/2) - oez) },
+                  { snapX: tex - ow/2, snapZ: gz + ((tz + td/2) - oez) },
+                ];
+                for (const c of candidates) {
+                  const dx = Math.abs(c.snapX - gx), dz = Math.abs(c.snapZ - gz);
+                  const dist = dx + dz;
+                  if (dx < WALL_SNAP_DIST * 2 && dz < WALL_SNAP_DIST * 2 && dist < bestCornerDist) {
+                    bestCornerDist = dist;
+                    cornerResult = { x: c.snapX, z: c.snapZ, rot: null };
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+      if (cornerResult) return cornerResult;
+    }
+  }
+
   // For non-openings: edge-to-edge snapping (original behavior)
   const L = gx - hw, R = gx + hw, T = gz + hd, B = gz - hd;
   let sx = gx, sz = gz, bestDx = WALL_SNAP_DIST, bestDz = WALL_SNAP_DIST;
