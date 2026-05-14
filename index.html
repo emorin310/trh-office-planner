@@ -508,10 +508,71 @@ function snap(val) { return snapSize > 0 ? Math.round(val / snapSize) * snapSize
 const WALL_SNAP_DIST = 1.5; // threshold in feet
 function wallSnap(obj, gx, gz) {
   if (!obj || obj.userData.isLabel) return { x: gx, z: gz, rot: null };
+  const isOpening = OPENING_TYPES.includes(obj.userData.furnitureType);
   const hw = (obj.userData.width || 1) / 2, hd = (obj.userData.depth || 1) / 2;
+
+  // For openings (doors, windows, bay doors): snap INTO the wall center
+  if (isOpening) {
+    let bestDist = WALL_SNAP_DIST + 2; // slightly larger threshold for openings
+    let bestX = gx, bestZ = gz, bestRot = null;
+    // Check all walls in scene
+    scene.children.forEach(c => {
+      if (c === obj || !c.isMesh || !c.userData || !c.userData.wallClass) return;
+      if (OPENING_TYPES.includes(c.userData.furnitureType)) return;
+      if (c.userData.isWallSegment) return;
+      const ww = c.userData.width || 1, wd = c.userData.depth || 1;
+      const isHoriz = ww > wd * 2; // wall runs along X
+      const isVert = wd > ww * 2;  // wall runs along Z
+      if (!isHoriz && !isVert) return;
+      if (isHoriz) {
+        // Wall runs along X — check if opening is near wall's Z position
+        const dz = Math.abs(gz - c.position.z);
+        if (dz < bestDist) {
+          // Check if along-wall position is within wall bounds (with margin)
+          const wallStart = c.position.x - ww/2, wallEnd = c.position.x + ww/2;
+          if (gx >= wallStart - 2 && gx <= wallEnd + 2) {
+            bestDist = dz; bestX = gx; bestZ = c.position.z; bestRot = 0;
+          }
+        }
+      } else {
+        // Wall runs along Z — check if opening is near wall's X position
+        const dx = Math.abs(gx - c.position.x);
+        if (dx < bestDist) {
+          const wallStart = c.position.z - wd/2, wallEnd = c.position.z + wd/2;
+          if (gz >= wallStart - 2 && gz <= wallEnd + 2) {
+            bestDist = dx; bestX = c.position.x; bestZ = gz; bestRot = Math.PI / 2;
+          }
+        }
+      }
+    });
+    // Also check moveable walls
+    moveableObjects.forEach(c => {
+      if (c === obj || !c.userData.wallClass) return;
+      if (OPENING_TYPES.includes(c.userData.furnitureType)) return;
+      const ww = c.userData.width || 1, wd = c.userData.depth || 1;
+      const isHoriz = ww > wd * 2, isVert = wd > ww * 2;
+      if (!isHoriz && !isVert) return;
+      if (isHoriz) {
+        const dz = Math.abs(gz - c.position.z);
+        if (dz < bestDist) {
+          const wallStart = c.position.x - ww/2, wallEnd = c.position.x + ww/2;
+          if (gx >= wallStart - 2 && gx <= wallEnd + 2) { bestDist = dz; bestX = gx; bestZ = c.position.z; bestRot = c.rotation.y; }
+        }
+      } else {
+        const dx = Math.abs(gx - c.position.x);
+        if (dx < bestDist) {
+          const wallStart = c.position.z - wd/2, wallEnd = c.position.z + wd/2;
+          if (gz >= wallStart - 2 && gz <= wallEnd + 2) { bestDist = dx; bestX = c.position.x; bestZ = gz; bestRot = c.rotation.y; }
+        }
+      }
+    });
+    return { x: bestX, z: bestZ, rot: bestRot };
+  }
+
+  // For non-openings: edge-to-edge snapping (original behavior)
   const L = gx - hw, R = gx + hw, T = gz + hd, B = gz - hd;
   let sx = gx, sz = gz, bestDx = WALL_SNAP_DIST, bestDz = WALL_SNAP_DIST;
-  let snapWall = null, snapAxis = null;
+  let snapWall = null;
   scene.children.forEach(c => {
     if (c === obj || !c.userData || !c.userData.width || c.userData.isLabel) return;
     if (!c.userData.type) return;
@@ -524,16 +585,15 @@ function wallSnap(obj, gx, gz) {
       { d: Math.abs(L - oL), adj: oL + hw },
       { d: Math.abs(R - oR), adj: oR - hw },
     ];
-    xPairs.forEach(p => { if (p.d < bestDx) { bestDx = p.d; sx = p.adj; snapWall = c; snapAxis = 'x'; }});
+    xPairs.forEach(p => { if (p.d < bestDx) { bestDx = p.d; sx = p.adj; snapWall = c; }});
     const zPairs = [
       { d: Math.abs(B - oT), adj: oT + hd },
       { d: Math.abs(T - oB), adj: oB - hd },
       { d: Math.abs(B - oB), adj: oB + hd },
       { d: Math.abs(T - oT), adj: oT - hd },
     ];
-    zPairs.forEach(p => { if (p.d < bestDz) { bestDz = p.d; sz = p.adj; snapWall = c; snapAxis = 'z'; }});
+    zPairs.forEach(p => { if (p.d < bestDz) { bestDz = p.d; sz = p.adj; snapWall = c; }});
   });
-  // Auto-rotate to align with the snapped wall
   let rot = null;
   if (snapWall && (snapWall.userData.wallClass || snapWall.userData.type === 'structure')) {
     rot = snapWall.rotation.y;
