@@ -158,6 +158,7 @@
       <div id="selection-props" style="display:none;">
         <div class="prop-row"><label>Name</label><input id="prop-name" type="text"></div>
         <div class="prop-row"><label>X (ft)</label><input id="prop-x" type="number" step="0.5"></div>
+        <div class="prop-row" id="prop-y-row" style="display:none"><label>Y (ft)</label><input id="prop-y" type="number" step="0.5" min="0"></div>
         <div class="prop-row"><label>Z (ft)</label><input id="prop-z" type="number" step="0.5"></div>
         <div class="prop-row"><label>Rot °</label><input id="prop-rot" type="number" step="15"></div>
         <div class="prop-row" id="prop-w-row" style="display:none"><label>W (ft)</label><input id="prop-w" type="number" step="0.5" min="0.5"></div>
@@ -1006,6 +1007,84 @@ function createGhostForType(type) {
 }
 function removeGhost() { if (ghostObj) { scene.remove(ghostObj); ghostObj = null; } }
 
+// Desk shape geometries
+function createDeskGeometry(w, h, d, shape) {
+  if (!shape || shape === 'rectangular') return new THREE.BoxGeometry(w, h, d);
+  const s = new THREE.Shape();
+  if (shape === 'oval') {
+    const rx = w/2, rz = d/2, segs = 32;
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      const px = Math.cos(a) * rx, pz = Math.sin(a) * rz;
+      if (i === 0) s.moveTo(px, pz); else s.lineTo(px, pz);
+    }
+  } else if (shape === 'bean') {
+    // Bean/kidney shape with keyboard cutout in front
+    const hw = w/2, hd = d/2, cutD = d * 0.3;
+    s.moveTo(-hw, -hd);
+    s.lineTo(hw, -hd);
+    s.lineTo(hw, hd);
+    // Keyboard cutout curve across front edge
+    s.bezierCurveTo(hw * 0.5, hd - cutD, -hw * 0.5, hd - cutD, -hw, hd);
+    s.lineTo(-hw, -hd);
+  }
+  const extrudeSettings = { depth: h, bevelEnabled: false };
+  const geo = new THREE.ExtrudeGeometry(s, extrudeSettings);
+  // Rotate so extrude goes up (Y axis) instead of Z
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, h/2, 0);
+  // Center the geometry
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const cx = (bb.max.x + bb.min.x) / 2, cz = (bb.max.z + bb.min.z) / 2;
+  geo.translate(-cx, 0, -cz);
+  return geo;
+}
+
+function showDeskShapeModal(desk) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:16px;min-width:300px;';
+  box.innerHTML = '<div style="color:#ccc;font-size:12px;margin-bottom:12px;">Select desk shape:</div>';
+  const shapes = [
+    { id: 'rectangular', label: 'Rectangular', icon: '▬' },
+    { id: 'oval', label: 'Oval', icon: '⬭' },
+    { id: 'bean', label: 'Bean (keyboard cutout)', icon: '☽' },
+  ];
+  const current = desk.userData.deskShape || 'rectangular';
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:flex;gap:8px;justify-content:center;';
+  shapes.forEach(sh => {
+    const btn = document.createElement('button');
+    btn.style.cssText = 'flex:1;padding:12px 8px;background:' + (sh.id === current ? '#e94560' : '#1a1a3e') + ';border:1px solid #2a2a5e;border-radius:6px;color:#fff;cursor:pointer;font-size:11px;text-align:center;';
+    btn.innerHTML = '<div style="font-size:24px;margin-bottom:4px;">' + sh.icon + '</div>' + sh.label;
+    btn.onmouseover = () => { if (sh.id !== current) btn.style.background = '#2a2a5e'; };
+    btn.onmouseout = () => { if (sh.id !== current) btn.style.background = '#1a1a3e'; };
+    btn.onclick = () => {
+      const oldShape = desk.userData.deskShape || 'rectangular';
+      if (sh.id !== oldShape) {
+        const w = desk.userData.width, h = desk.userData.height, d = desk.userData.depth;
+        const oldGeo = desk.geometry;
+        desk.geometry = createDeskGeometry(w, h, d, sh.id);
+        oldGeo.dispose();
+        desk.userData.deskShape = sh.id;
+        pushUndo({ type: 'desk-shape', obj: desk, oldShape, newShape: sh.id });
+      }
+      document.body.removeChild(overlay);
+    };
+    grid.appendChild(btn);
+  });
+  box.appendChild(grid);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'display:block;margin:10px auto 0;padding:6px 14px;background:#1a1a3e;border:1px solid #2a2a5e;border-radius:4px;color:#ccc;cursor:pointer;font-size:12px;';
+  cancelBtn.onclick = () => document.body.removeChild(overlay);
+  box.appendChild(cancelBtn);
+  overlay.appendChild(box); document.body.appendChild(overlay);
+  overlay.addEventListener('click', (ev) => { if (ev.target === overlay) document.body.removeChild(overlay); });
+}
+
 function placeObject(type, position, nameOverride, rotDeg) {
   const dims = getFurnitureDims(type); if (!dims) return null;
   const mat = getMaterialForType(type);
@@ -1087,6 +1166,7 @@ function selectObject(obj) {
     document.getElementById('btn-lock').textContent = 'Lock';
     document.getElementById('prop-w-row').style.display = 'none';
     document.getElementById('prop-d-row').style.display = 'none';
+    document.getElementById('prop-y-row').style.display = 'none';
   } else if (obj && !obj.userData.fixed) {
     obj.material.emissive.setHex(0x333300);
     document.getElementById('no-selection').style.display = 'none';
@@ -1097,6 +1177,13 @@ function selectObject(obj) {
     document.getElementById('prop-rot').value = Math.round(THREE.MathUtils.radToDeg(obj.rotation.y));
     document.getElementById('prop-color').value = '#' + obj.material.color.getHexString();
     document.getElementById('btn-lock').textContent = obj.userData.fixed ? 'Unlock' : 'Lock';
+    // Show Y (height) field for openings like windows
+    const isOpening = obj.userData.type === 'opening';
+    document.getElementById('prop-y-row').style.display = isOpening ? 'flex' : 'none';
+    if (isOpening) {
+      const bottomY = obj.position.y - (obj.userData.height || 0) / 2;
+      document.getElementById('prop-y').value = bottomY.toFixed(1);
+    }
     // Show W/D fields for walls/structures
     const isResizable = obj.userData.wallClass || obj.userData.type === 'inner' || obj.userData.type === 'existing' || obj.userData.type === 'furniture' || obj.userData.type === 'opening';
     document.getElementById('prop-w-row').style.display = isResizable ? 'flex' : 'none';
@@ -1111,6 +1198,7 @@ function selectObject(obj) {
     document.getElementById('selection-props').style.display = 'none';
     document.getElementById('prop-w-row').style.display = 'none';
     document.getElementById('prop-d-row').style.display = 'none';
+    document.getElementById('prop-y-row').style.display = 'none';
     selectedObj = null;
   }
   updateSelectionStatus();
@@ -1375,9 +1463,10 @@ canvas.addEventListener('dblclick', (e) => {
   const rect = canvas.getBoundingClientRect();
   const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   const rc = new THREE.Raycaster(); rc.setFromCamera(mouse, camera);
-  const hits = rc.intersectObjects(labelSprites);
-  if (hits.length > 0) {
-    const lbl = hits[0].object;
+  // Check labels first
+  const labelHits = rc.intersectObjects(labelSprites);
+  if (labelHits.length > 0) {
+    const lbl = labelHits[0].object;
     const oldText = lbl.userData.labelText || '';
     showLabelEditor(oldText, (newText) => {
       if (newText !== oldText) {
@@ -1386,6 +1475,16 @@ canvas.addEventListener('dblclick', (e) => {
         selectObject(lbl);
       }
     });
+    return;
+  }
+  // Check desks/tables
+  const deskTypes = ['desk','ldesk','table-sm','table-lg'];
+  const objHits = rc.intersectObjects(moveableObjects);
+  if (objHits.length > 0) {
+    const obj = objHits[0].object;
+    if (deskTypes.includes(obj.userData.furnitureType)) {
+      showDeskShapeModal(obj);
+    }
   }
 });
 
@@ -1480,6 +1579,11 @@ document.addEventListener('keydown', (e) => {
       selectObject(null);
     } else if (action.type === 'edit-label') {
       updateLabelText(action.label, action.oldText);
+    } else if (action.type === 'desk-shape') {
+      const w = action.obj.userData.width, h = action.obj.userData.height, d = action.obj.userData.depth;
+      action.obj.geometry.dispose();
+      action.obj.geometry = createDeskGeometry(w, h, d, action.oldShape);
+      action.obj.userData.deskShape = action.oldShape;
     } else if (action.type === 'add') {
       scene.remove(action.obj); moveableObjects = moveableObjects.filter(m => m !== action.obj);
       selectObject(null);
@@ -1667,8 +1771,15 @@ function updatePropFields() {
   document.getElementById('prop-rot').value = Math.round(THREE.MathUtils.radToDeg(selectedObj.rotation.y));
 }
 document.getElementById('prop-name').addEventListener('change', e => { if (selectedObj) selectedObj.userData.name = e.target.value; });
-document.getElementById('prop-x').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.x = parseFloat(e.target.value); });
-document.getElementById('prop-z').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.position.z = parseFloat(e.target.value); });
+document.getElementById('prop-x').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { selectedObj.position.x = parseFloat(e.target.value); performWallCuts(); }});
+document.getElementById('prop-y').addEventListener('change', e => {
+  if (selectedObj && !selectedObj.userData.fixed && selectedObj.userData.type === 'opening') {
+    const bottomY = parseFloat(e.target.value);
+    selectedObj.position.y = bottomY + (selectedObj.userData.height || 0) / 2;
+    performWallCuts();
+  }
+});
+document.getElementById('prop-z').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) { selectedObj.position.z = parseFloat(e.target.value); performWallCuts(); }});
 document.getElementById('prop-rot').addEventListener('change', e => { if (selectedObj && !selectedObj.userData.fixed) selectedObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value)); });
 document.getElementById('prop-color').addEventListener('input', e => { if (selectedObj && !selectedObj.userData.isLabel) { selectedObj.material.color.set(e.target.value); selectedObj.userData.originalColor = selectedObj.material.color.getHex(); }});
 
@@ -1934,7 +2045,8 @@ function serializeLayout() {
     px: +o.position.x.toFixed(3), py: +o.position.y.toFixed(3), pz: +o.position.z.toFixed(3),
     ry: +o.rotation.y.toFixed(4), color: o.material.color.getHex(),
     w: o.userData.width, h: o.userData.height, d: o.userData.depth,
-    fixed: o.userData.fixed || false, wallClass: o.userData.wallClass || null
+    fixed: o.userData.fixed || false, wallClass: o.userData.wallClass || null,
+    deskShape: o.userData.deskShape || null
   }));
   const lbls = labelSprites.map(l => ({
     text: l.userData.labelText || '', x: +l.position.x.toFixed(3), y: +l.position.y.toFixed(3), z: +l.position.z.toFixed(3),
@@ -1958,7 +2070,11 @@ function deserializeLayout(data) {
 
   // Rebuild objects
   (data.objects || []).forEach(item => {
-    const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+    const deskShape = item.deskShape || null;
+    const isDeskType = ['desk','ldesk','table-sm','table-lg'].includes(item.furnitureType);
+    const geo = (isDeskType && deskShape && deskShape !== 'rectangular') ?
+      createDeskGeometry(item.w, item.h, item.d, deskShape) :
+      new THREE.BoxGeometry(item.w, item.h, item.d);
     let mat;
     if (['door','bay-door','loading-dock','garage-door'].includes(item.furnitureType)) {
       mat = mats.door.clone();
@@ -1974,7 +2090,7 @@ function deserializeLayout(data) {
     m.userData = {
       name: item.name, type: item.type, furnitureType: item.furnitureType || item.type,
       fixed: isDock ? false : item.fixed, width: item.w, height: item.h, depth: item.d,
-      originalColor: item.color, wallClass: item.wallClass
+      originalColor: item.color, wallClass: item.wallClass, deskShape: deskShape
     };
     scene.add(m); moveableObjects.push(m);
   });
