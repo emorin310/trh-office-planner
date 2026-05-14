@@ -1825,6 +1825,7 @@ document.addEventListener('keydown', (e) => {
       w: o.userData.width, h: o.userData.height, d: o.userData.depth,
       color: o.material.color.getHex(), ry: o.rotation.y,
       wallClass: o.userData.wallClass, fixed: false,
+      deskShape: o.userData.deskShape || null,
       dx: o.position.x - anchor.x, dz: o.position.z - anchor.z,
     }));
     window._clipboardLabels = [];
@@ -1843,7 +1844,16 @@ document.addEventListener('keydown', (e) => {
     const pastedLabels = [];
     if (hasObjs) {
       window._clipboardObjs.forEach(item => {
-        const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+        const ft = item.furnitureType || item.type;
+        const isDeskType = ['desk','ldesk','table-sm','table-lg','table'].includes(ft);
+        let geo;
+        if (isDeskType && item.deskShape && item.deskShape !== 'rectangular') {
+          geo = createDeskGeometry(item.w, item.h, item.d, item.deskShape);
+        } else if (['ldesk','chair','bookshelf','cabinet'].includes(ft)) {
+          geo = createFurnitureGeometry(ft, item.w, item.h, item.d);
+        } else {
+          geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+        }
         const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
         const m = new THREE.Mesh(geo, mat);
         const baseX = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.x : window._clipboardObjs[0].dx + BLDG_W/2) + offset;
@@ -1852,10 +1862,11 @@ document.addEventListener('keydown', (e) => {
         m.rotation.y = item.ry;
         m.castShadow = true; m.receiveShadow = true;
         m.userData = {
-          name: item.name + ' copy', type: item.type, furnitureType: item.furnitureType || item.type,
+          name: item.name + ' copy', type: item.type, furnitureType: ft,
           fixed: false, width: item.w, height: item.h, depth: item.d,
-          originalColor: item.color, wallClass: item.wallClass
+          originalColor: item.color, wallClass: item.wallClass, deskShape: item.deskShape || null
         };
+        addFurnitureDetails(m, ft);
         scene.add(m); moveableObjects.push(m); pasted.push(m);
       });
     }
@@ -2117,8 +2128,21 @@ document.getElementById('prop-d').addEventListener('change', e => { if (selected
 document.getElementById('btn-delete').addEventListener('click', () => { const all = getAllSelected(); if (all.length) { all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); }); selectObject(null); } });
 document.getElementById('btn-duplicate').addEventListener('click', () => {
   if (!selectedObj || selectedObj.userData.fixed) return;
-  const c = selectedObj.clone(); c.material = selectedObj.material.clone(); c.position.x += 2; c.position.z += 2;
-  c.userData = { ...selectedObj.userData }; scene.add(c); moveableObjects.push(c); selectObject(c);
+  const ft = selectedObj.userData.furnitureType;
+  const w = selectedObj.userData.width, h = selectedObj.userData.height, d = selectedObj.userData.depth;
+  const ds = selectedObj.userData.deskShape;
+  const isDeskType = ['desk','ldesk','table-sm','table-lg','table'].includes(ft);
+  let geo;
+  if (isDeskType && ds && ds !== 'rectangular') geo = createDeskGeometry(w, h, d, ds);
+  else if (['ldesk','chair','bookshelf','cabinet'].includes(ft)) geo = createFurnitureGeometry(ft, w, h, d);
+  else geo = new THREE.BoxGeometry(w, h, d);
+  const c = new THREE.Mesh(geo, selectedObj.material.clone());
+  c.position.copy(selectedObj.position); c.position.x += 2; c.position.z += 2;
+  c.rotation.copy(selectedObj.rotation);
+  c.castShadow = true; c.receiveShadow = true;
+  c.userData = { ...selectedObj.userData };
+  addFurnitureDetails(c, ft);
+  scene.add(c); moveableObjects.push(c); selectObject(c);
 });
 document.getElementById('btn-lock').addEventListener('click', () => { if (selectedObj) { selectedObj.userData.fixed = !selectedObj.userData.fixed; document.getElementById('btn-lock').textContent = selectedObj.userData.fixed ? 'Unlock' : 'Lock'; }});
 
