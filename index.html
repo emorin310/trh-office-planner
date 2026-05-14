@@ -243,6 +243,8 @@ let multiSelected = []; // additional objects in multi-select
 let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true, labelScale = 2, showDims = false;
 let dimSprites = [];
 let moveableObjects = [], labelSprites = [];
+let wallCutState = []; // tracks wall cuts: { original, segments[], opening }
+const OPENING_TYPES = ['door','window','loading-dock','garage-door'];
 
 // Resize handles
 let resizeHandles = []; // [{mesh, axis:'x'|'z', sign:1|-1}]
@@ -376,7 +378,7 @@ const mats = {
   table: new THREE.MeshStandardMaterial({ color: 0x5599bb, roughness: 0.4 }),
   cabinet: new THREE.MeshStandardMaterial({ color: 0x557799, roughness: 0.5 }),
   couch: new THREE.MeshStandardMaterial({ color: 0x6644aa, roughness: 0.6 }),
-  door: new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 1.0 }),
+  door: new THREE.MeshStandardMaterial({ color: 0xaa8844, roughness: 0.4, transparent: true, opacity: 0.35 }),
   doorFrame: new THREE.MeshStandardMaterial({ color: 0xaa8844, roughness: 0.4 }),
   window: new THREE.MeshStandardMaterial({ color: 0x88ccff, roughness: 0.1, transparent: true, opacity: 0.4 }),
   ghost: new THREE.MeshStandardMaterial({ color: 0x88ff88, roughness: 0.5, transparent: true, opacity: 0.3 }),
@@ -393,6 +395,7 @@ function createBox(w, h, d, mat, pos, name, opts = {}) {
   mesh.receiveShadow = true;
   mesh.userData = {
     name, type: opts.type || 'furniture', fixed: opts.fixed || false,
+    furnitureType: opts.furnitureType || null,
     width: w, height: h, depth: d,
     originalColor: mat.color.getHex(),
     wallClass: opts.wallClass || null, // 'outer', 'existing', 'inner'
@@ -539,6 +542,141 @@ function wallSnap(obj, gx, gz) {
 }
 
 // ============================================================
+// Wall Cut System — splits walls when openings overlap them
+// ============================================================
+function restoreWallCuts() {
+  wallCutState.forEach(cut => {
+    cut.original.visible = true;
+    cut.segments.forEach(s => scene.remove(s));
+  });
+  wallCutState = [];
+}
+
+function getWallBounds(wall) {
+  const w = wall.userData.width, d = wall.userData.depth, h = wall.userData.height;
+  const cx = wall.position.x, cz = wall.position.z, cy = wall.position.y;
+  const isHoriz = w > d * 2; // runs along X
+  const isVert = d > w * 2;  // runs along Z
+  if (!isHoriz && !isVert) return null;
+  const len = isHoriz ? w : d;
+  const thick = isHoriz ? d : w;
+  const axis = isHoriz ? 'x' : 'z';
+  const center = isHoriz ? cx : cz;
+  const perp = isHoriz ? cz : cx;
+  return { axis, len, thick, h, center, perp, start: center - len/2, end: center + len/2, cy, wall };
+}
+
+function getOpeningExtent(opening, axis) {
+  const w = opening.userData.width, d = opening.userData.depth;
+  const rot = opening.rotation.y;
+  const cos = Math.abs(Math.cos(rot)), sin = Math.abs(Math.sin(rot));
+  let along, across;
+  if (axis === 'x') {
+    along = w * cos + d * sin;
+    across = w * sin + d * cos;
+  } else {
+    along = d * cos + w * sin;
+    across = d * sin + w * cos;
+  }
+  const center = axis === 'x' ? opening.position.x : opening.position.z;
+  const perp = axis === 'x' ? opening.position.z : opening.position.x;
+  return { along, across, center, perp, start: center - along/2, end: center + along/2 };
+}
+
+function performWallCuts() {
+  restoreWallCuts();
+  const openings = moveableObjects.filter(o => OPENING_TYPES.includes(o.userData.furnitureType));
+  // Collect all wall meshes (fixed scene children + moveable walls), excluding openings and segments
+  const walls = [];
+  scene.children.forEach(c => {
+    if (!c.isMesh || !c.userData || !c.userData.wallClass || c.userData.isWallSegment) return;
+    if (OPENING_TYPES.includes(c.userData.furnitureType)) return;
+    walls.push(c);
+  });
+  moveableObjects.forEach(o => {
+    if (!o.userData.wallClass || o.userData.isWallSegment) return;
+    if (OPENING_TYPES.includes(o.userData.furnitureType)) return;
+    if (!walls.includes(o)) walls.push(o);
+  });
+
+  // For each wall, collect all openings that overlap it, then cut once
+  walls.forEach(wall => {
+    const wb = getWallBounds(wall);
+    if (!wb) return;
+    const cuts = []; // { start, end, opH, opBottom }
+    openings.forEach(op => {
+      const oe = getOpeningExtent(op, wb.axis);
+      // Check perpendicular proximity
+      const perpDist = Math.abs(oe.perp - wb.perp);
+      if (perpDist > wb.thick/2 + oe.across/2 + 0.5) return;
+      // Check overlap along wall axis
+      if (oe.end <= wb.start + 0.1 || oe.start >= wb.end - 0.1) return;
+      const cutStart = Math.max(oe.start, wb.start);
+      const cutEnd = Math.min(oe.end, wb.end);
+      if (cutEnd - cutStart < 0.1) return;
+      cuts.push({ start: cutStart, end: cutEnd, opH: op.userData.height, opBottom: op.position.y - op.userData.height/2 });
+    });
+    if (cuts.length === 0) return;
+
+    // Merge overlapping cuts and sort
+    cuts.sort((a,b) => a.start - b.start);
+    const merged = [cuts[0]];
+    for (let i = 1; i < cuts.length; i++) {
+      const last = merged[merged.length-1];
+      if (cuts[i].start <= last.end + 0.1) {
+        last.end = Math.max(last.end, cuts[i].end);
+        last.opH = Math.max(last.opH, cuts[i].opH);
+      } else merged.push({...cuts[i]});
+    }
+
+    // Create wall segments around the cuts
+    const segments = [];
+    const mat = wall.material.clone();
+    const wallY = wall.position.y;
+
+    function addSeg(aStart, aEnd, h, yCenter, name) {
+      const segLen = aEnd - aStart;
+      if (segLen < 0.05) return;
+      const segCenter = (aStart + aEnd) / 2;
+      const geo = wb.axis === 'x' ?
+        new THREE.BoxGeometry(segLen, h, wb.thick) :
+        new THREE.BoxGeometry(wb.thick, h, segLen);
+      const seg = new THREE.Mesh(geo, mat.clone());
+      if (wb.axis === 'x') seg.position.set(segCenter, yCenter, wb.perp);
+      else seg.position.set(wb.perp, yCenter, segCenter);
+      seg.castShadow = true; seg.receiveShadow = true;
+      seg.userData = { ...wall.userData, name: name, isWallSegment: true, width: wb.axis === 'x' ? segLen : wb.thick, depth: wb.axis === 'x' ? wb.thick : segLen, height: h };
+      scene.add(seg);
+      segments.push(seg);
+    }
+
+    // Fill gaps between cuts with wall segments
+    let pos = wb.start;
+    merged.forEach((cut, i) => {
+      // Solid segment before this cut
+      if (cut.start > pos + 0.05) addSeg(pos, cut.start, wb.h, wallY, wall.userData.name + ` (${i}L)`);
+      // Lintel above this cut
+      const opTop = (cut.opBottom || 0) + cut.opH;
+      const wallTop = wallY + wb.h/2;
+      const lintelH = wallTop - opTop;
+      if (lintelH > 0.1) {
+        const lintelY = opTop + lintelH/2;
+        addSeg(cut.start, cut.end, lintelH, lintelY, wall.userData.name + ` (${i}T)`);
+      }
+      pos = cut.end;
+    });
+    // Solid segment after last cut
+    if (wb.end > pos + 0.05) addSeg(pos, wb.end, wb.h, wallY, wall.userData.name + ` (R)`);
+
+    wall.visible = false;
+    wallCutState.push({ original: wall, segments, openings: openings.filter(op => {
+      const oe = getOpeningExtent(op, wb.axis);
+      return Math.abs(oe.perp - wb.perp) <= wb.thick/2 + oe.across/2 + 0.5 && oe.end > wb.start && oe.start < wb.end;
+    })});
+  });
+}
+
+// ============================================================
 // Build fixed structure (RED outer walls only)
 // ============================================================
 function buildStructure() {
@@ -650,7 +788,7 @@ function buildExistingStructures() {
   addLabel("Pvt Office A\n8.8'×11' (existing)", paX + 4.4, 3, paZ + 5.5, 0x4488cc);
 
   // Door into office from west/right
-  createBox(3, 7, WALL_T*2, mats.door, { x: ox, y: 0, z: oz + 15 }, 'Office Entry Door', { type: 'existing' });
+  createBox(3, 7, WALL_T*2, mats.door, { x: ox, y: 0, z: oz + 15 }, 'Office Entry Door', { type: 'existing', furnitureType: 'door' });
   addLabel('DOOR', ox - 2, 3, oz + 15, 0xaa8844);
 
   // ---- Shed (80 sq ft) — warehouse area ----
@@ -1027,7 +1165,7 @@ canvas.addEventListener('mousedown', (e) => {
         return;
       }
       const m = placeObject(placeType, pt);
-      if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); }
+      if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); if (OPENING_TYPES.includes(placeType)) performWallCuts(); }
     }
     return;
   }
@@ -1190,11 +1328,12 @@ canvas.addEventListener('mouseup', () => {
     }
     resizeHandle.material.emissive.setHex(0x553300);
     isResizing = false; resizeHandle = null; resizeStart = null;
+    performWallCuts();
     return;
   }
   if (isDragging && preDragPositions.length > 0) {
     const moved = preDragPositions.some(p => p.obj.position.x !== p.x || p.obj.position.z !== p.z);
-    if (moved) pushUndo({ type:'move', positions: preDragPositions });
+    if (moved) { pushUndo({ type:'move', positions: preDragPositions }); performWallCuts(); }
     preDragPositions = [];
   }
   isDragging = false; orbitState.dragging = false; orbitState.panning = false;
@@ -1336,6 +1475,7 @@ document.addEventListener('keydown', (e) => {
       groups.push(action.group);
       document.getElementById('status-left').textContent = 'Ungroup undone';
     }
+    performWallCuts();
     return;
   }
 
@@ -1390,6 +1530,7 @@ document.addEventListener('keydown', (e) => {
       pushUndo({ type:'delete', items: [...all] });
       all.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); });
       selectObject(null);
+      performWallCuts();
     }
   }
 
@@ -1579,7 +1720,7 @@ document.getElementById('btn-load').addEventListener('click', () => {
     data.forEach(item => { const geo = new THREE.BoxGeometry(item.w, item.h, item.d); const mat = new THREE.MeshStandardMaterial({color:item.color, roughness:0.5}); const m = new THREE.Mesh(geo, mat); m.position.set(item.px,item.py,item.pz); m.rotation.y = item.ry; m.castShadow=true; m.receiveShadow=true; m.userData = {name:item.name,type:item.type,fixed:item.fixed,width:item.w,height:item.h,depth:item.d,originalColor:item.color,furnitureType:item.type,wallClass:item.wallClass}; scene.add(m); moveableObjects.push(m); });
     selectObject(null); } catch(err) { alert('Load failed: '+err.message); } }; r.readAsText(f); }; inp.click();
 });
-document.getElementById('btn-reset').addEventListener('click', () => { if (!confirm('Reset to default layout?')) return; moveableObjects.forEach(o => scene.remove(o)); moveableObjects = []; labelSprites.forEach(l => scene.remove(l)); labelSprites = []; groups = []; buildExistingStructures(); buildDefaultFurniture(); selectObject(null); });
+document.getElementById('btn-reset').addEventListener('click', () => { if (!confirm('Reset to default layout?')) return; restoreWallCuts(); moveableObjects.forEach(o => scene.remove(o)); moveableObjects = []; labelSprites.forEach(l => scene.remove(l)); labelSprites = []; groups = []; buildExistingStructures(); buildDefaultFurniture(); selectObject(null); performWallCuts(); });
 
 // ============================================================
 // AI Chat
@@ -1826,6 +1967,7 @@ function deserializeLayout(data) {
   });
 
   selectObject(null);
+  performWallCuts();
 }
 
 async function publishLayout() {
@@ -1915,6 +2057,7 @@ loadPublishedLayout().then(loaded => {
   } else {
     buildExistingStructures();
     buildDefaultFurniture();
+    performWallCuts();
     addChatMsg('system', 'No published layout found — loaded defaults');
   }
 });
