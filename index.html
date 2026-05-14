@@ -148,6 +148,7 @@
       <button class="tool-btn" data-place="door"><span class="icon">🚪</span> Door</button>
       <button class="tool-btn" data-place="window"><span class="icon">▯</span> Window</button>
       <button class="tool-btn" data-place="partition"><span class="icon">┃</span> Partition</button>
+      <button class="tool-btn" data-place="text"><span class="icon">𝐓</span> Text</button>
     </div>
 
     <div id="props">
@@ -371,7 +372,8 @@ const mats = {
   table: new THREE.MeshStandardMaterial({ color: 0x5599bb, roughness: 0.4 }),
   cabinet: new THREE.MeshStandardMaterial({ color: 0x557799, roughness: 0.5 }),
   couch: new THREE.MeshStandardMaterial({ color: 0x6644aa, roughness: 0.6 }),
-  door: new THREE.MeshStandardMaterial({ color: 0xaa8844, roughness: 0.4, transparent: true, opacity: 0.7 }),
+  door: new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 1.0 }),
+  doorFrame: new THREE.MeshStandardMaterial({ color: 0xaa8844, roughness: 0.4 }),
   window: new THREE.MeshStandardMaterial({ color: 0x88ccff, roughness: 0.1, transparent: true, opacity: 0.4 }),
   ghost: new THREE.MeshStandardMaterial({ color: 0x88ff88, roughness: 0.5, transparent: true, opacity: 0.3 }),
 };
@@ -415,6 +417,23 @@ function addLabel(text, x, y, z, color) {
   sprite.userData = { isLabel: true, baseScale: { x: 10, y: 2.5 }, labelText: text, labelColor: color };
   scene.add(sprite);
   labelSprites.push(sprite);
+}
+
+function updateLabelText(sprite, newText, color) {
+  if (!sprite || !sprite.userData.isLabel) return;
+  color = color || sprite.userData.labelColor || 0x44cc66;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 512; canvas.height = 128;
+  ctx.font = 'bold 32px system-ui'; ctx.textAlign = 'center';
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+  newText.split('\n').forEach((line, i) => { ctx.strokeText(line, 256, 45 + i * 36); ctx.fillText(line, 256, 45 + i * 36); });
+  if (sprite.material.map) sprite.material.map.dispose();
+  sprite.material.map = new THREE.CanvasTexture(canvas);
+  sprite.material.needsUpdate = true;
+  sprite.userData.labelText = newText;
+  sprite.userData.labelColor = color;
 }
 
 function snap(val) { return snapSize > 0 ? Math.round(val / snapSize) * snapSize : val; }
@@ -483,9 +502,9 @@ function buildStructure() {
   createBox(4, WH_WALL_H, WALL_T, bw, { x: g1 + ldW + 2, y: 0, z: 0 }, 'West Wall (Mid)', { fixed: true, type: 'structure', wallClass: 'outer' });
   const rW = BLDG_W - (g2 + gdW);
   createBox(rW, WH_WALL_H, WALL_T, bw, { x: g2 + gdW + rW/2, y: 0, z: 0 }, 'West Wall (N)', { fixed: true, type: 'structure', wallClass: 'outer' });
-  createBox(ldW, 3, WALL_T, mats.door, { x: g1 + ldW/2, y: 0, z: 0 }, 'Loading Dock (18\'11")', { fixed: true, type: 'structure' });
+  createBox(ldW, 3, WALL_T*2, mats.door, { x: g1 + ldW/2, y: 0, z: 0 }, 'Loading Dock (18\'11")', { fixed: true, type: 'structure' });
   addLabel('Loading Dock\n18\'11⅝"', g1 + ldW/2, 5, 3, 0xaa8844);
-  createBox(gdW, 3, WALL_T, mats.door, { x: g2 + gdW/2, y: 0, z: 0 }, 'Garage Door (15\'10")', { fixed: true, type: 'structure' });
+  createBox(gdW, 3, WALL_T*2, mats.door, { x: g2 + gdW/2, y: 0, z: 0 }, 'Garage Door (15\'10")', { fixed: true, type: 'structure' });
   addLabel('Garage Door\n15\'9⅝"', g2 + gdW/2, 5, 3, 0xaa8844);
   // E/S/N walls
   createBox(BLDG_W, WH_WALL_H, WALL_T, bw, { x: BLDG_W/2, y: 0, z: BLDG_D }, 'East Wall', { fixed: true, type: 'structure', wallClass: 'outer' });
@@ -567,7 +586,7 @@ function buildExistingStructures() {
   addLabel("Pvt Office A\n8.8'×11' (existing)", paX + 4.4, 3, paZ + 5.5, 0x4488cc);
 
   // Door into office from west/right
-  createBox(3, 3, WALL_T, mats.door, { x: ox, y: 0, z: oz + 15 }, 'Office Entry Door', { type: 'existing' });
+  createBox(3, 7, WALL_T*2, mats.door, { x: ox, y: 0, z: oz + 15 }, 'Office Entry Door', { type: 'existing' });
   addLabel('DOOR', ox - 2, 3, oz + 15, 0xaa8844);
 
   // ---- Shed (80 sq ft) — warehouse area ----
@@ -768,7 +787,7 @@ function getFurnitureDims(type) {
     'table-sm': {w:3,h:2.5,d:3}, 'table-lg': {w:6,h:2.5,d:3}, 'cabinet': {w:3,h:4,d:1.5},
     'bookshelf': {w:4,h:5,d:1}, 'couch': {w:6,h:2.5,d:2.5},
     'wall': {w:8,h:WALL_H,d:WALL_T}, 'half-wall': {w:8,h:HALF_WALL_H,d:WALL_T},
-    'door': {w:3,h:7,d:WALL_T}, 'window': {w:4,h:3,d:WALL_T}, 'partition': {w:6,h:WALL_H,d:WALL_T},
+    'door': {w:3,h:7,d:WALL_T*2}, 'window': {w:4,h:3,d:WALL_T}, 'partition': {w:6,h:WALL_H,d:WALL_T},
   })[type] || null;
 }
 function getMaterialForType(type) {
@@ -794,6 +813,11 @@ function placeObject(type, position, nameOverride, rotDeg) {
   if (type === 'chair') {
     mesh = new THREE.Mesh(new THREE.CylinderGeometry(dims.w/2, dims.w/2, dims.h, 16), mat.clone());
     mesh.position.set(position.x, dims.h/2, position.z);
+  } else if (type === 'door') {
+    // Door renders as dark cutout that visually punches through walls
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mats.door.clone());
+    mesh.position.set(position.x, dims.h/2, position.z);
+    mesh.renderOrder = 1; // render after walls
   } else if (type === 'window') {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mat.clone());
     mesh.position.set(position.x, 4 + dims.h/2, position.z);
@@ -923,7 +947,25 @@ canvas.addEventListener('mousedown', (e) => {
     if (e.button === 1) orbitState.panning = true; else orbitState.dragging = true;
     orbitState.lastX = e.clientX; orbitState.lastY = e.clientY; e.preventDefault(); return;
   }
-  if (placeType) { const pt = getFloorPoint(e); if (pt) { pt.x = snap(pt.x); pt.z = snap(pt.z); const m = placeObject(placeType, pt); if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); } } return; }
+  if (placeType) {
+    const pt = getFloorPoint(e);
+    if (pt) {
+      pt.x = snap(pt.x); pt.z = snap(pt.z);
+      if (placeType === 'text') {
+        const text = prompt('Label text (use \\n for newlines):');
+        if (text) {
+          const t = text.replace(/\\n/g, '\n');
+          addLabel(t, pt.x, 3, pt.z, 0x44cc66);
+          const lbl = labelSprites[labelSprites.length - 1];
+          selectObject(lbl);
+        }
+        return;
+      }
+      const m = placeObject(placeType, pt);
+      if (m) { pushUndo({ type:'add', obj:m }); selectObject(m); }
+    }
+    return;
+  }
   // Check resize handles first
   if (resizeHandles.length > 0 && selectedObj) {
     getIntersection(e);
@@ -1075,6 +1117,25 @@ canvas.addEventListener('mouseup', () => {
 canvas.addEventListener('wheel', (e) => { orbitState.radius = Math.max(5, Math.min(200, orbitState.radius + e.deltaY * 0.05)); updateOrbitCamera(); e.preventDefault(); }, { passive: false });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+// Double-click to edit label text
+canvas.addEventListener('dblclick', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  const rc = new THREE.Raycaster(); rc.setFromCamera(mouse, camera);
+  const hits = rc.intersectObjects(labelSprites);
+  if (hits.length > 0) {
+    const lbl = hits[0].object;
+    const oldText = lbl.userData.labelText || '';
+    const newText = prompt('Edit label text (use \\n for newlines):', oldText.replace(/\n/g, '\\n'));
+    if (newText !== null && newText !== oldText.replace(/\n/g, '\\n')) {
+      const parsed = newText.replace(/\\n/g, '\n');
+      pushUndo({ type: 'edit-label', label: lbl, oldText: oldText, newText: parsed });
+      updateLabelText(lbl, parsed);
+      selectObject(lbl);
+    }
+  }
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const cmd = e.metaKey || e.ctrlKey;
@@ -1085,15 +1146,26 @@ document.addEventListener('keydown', (e) => {
   if (cmd && e.key === 'c') {
     e.preventDefault();
     const all = getAllSelected();
-    if (all.length === 0 && selectedObj && selectedObj.userData.isLabel) return; // skip labels
+    // Support copying labels
+    if (all.length === 0 && selectedObj && selectedObj.userData.isLabel) {
+      window._clipboardObjs = [];
+      window._clipboardLabels = [{
+        text: selectedObj.userData.labelText, color: selectedObj.userData.labelColor,
+        x: selectedObj.position.x, y: selectedObj.position.y, z: selectedObj.position.z, dx: 0, dz: 0
+      }];
+      addChatMsg('system', '✓ Copied 1 label');
+      return;
+    }
     if (all.length === 0) return;
+    const anchor = all[0].position;
     window._clipboardObjs = all.map(o => ({
       name: o.userData.name, type: o.userData.type, furnitureType: o.userData.furnitureType,
       w: o.userData.width, h: o.userData.height, d: o.userData.depth,
       color: o.material.color.getHex(), ry: o.rotation.y,
       wallClass: o.userData.wallClass, fixed: false,
-      dx: o.position.x - all[0].position.x, dz: o.position.z - all[0].position.z,
+      dx: o.position.x - anchor.x, dz: o.position.z - anchor.z,
     }));
+    window._clipboardLabels = [];
     addChatMsg('system', `✓ Copied ${all.length} object${all.length>1?'s':''}`);
     return;
   }
@@ -1101,31 +1173,43 @@ document.addEventListener('keydown', (e) => {
   // Cmd+V — Paste at offset from original
   if (cmd && e.key === 'v') {
     e.preventDefault();
-    if (!window._clipboardObjs || window._clipboardObjs.length === 0) return;
-    const offset = 3; // paste offset in feet
+    const hasObjs = window._clipboardObjs && window._clipboardObjs.length > 0;
+    const hasLabels = window._clipboardLabels && window._clipboardLabels.length > 0;
+    if (!hasObjs && !hasLabels) return;
+    const offset = 3;
     const pasted = [];
-    window._clipboardObjs.forEach(item => {
-      const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
-      const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
-      const m = new THREE.Mesh(geo, mat);
-      // Place relative to first object + offset
-      const baseX = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.x : window._clipboardObjs[0].dx + BLDG_W/2) + offset;
-      const baseZ = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.z : window._clipboardObjs[0].dz + BLDG_D/2) + offset;
-      m.position.set(snap(baseX + item.dx), item.h/2, snap(baseZ + item.dz));
-      m.rotation.y = item.ry;
-      m.castShadow = true; m.receiveShadow = true;
-      m.userData = {
-        name: item.name + ' copy', type: item.type, furnitureType: item.furnitureType || item.type,
-        fixed: false, width: item.w, height: item.h, depth: item.d,
-        originalColor: item.color, wallClass: item.wallClass
-      };
-      scene.add(m); moveableObjects.push(m); pasted.push(m);
-    });
-    pushUndo({ type:'paste', items: [...pasted] }); // undo = remove pasted
-    // Select pasted objects
-    if (pasted.length === 1) selectObject(pasted[0]);
-    else { selectObject(pasted[0]); pasted.slice(1).forEach(p => toggleMultiSelect(p)); }
-    addChatMsg('system', `✓ Pasted ${pasted.length} object${pasted.length>1?'s':''}`);
+    const pastedLabels = [];
+    if (hasObjs) {
+      window._clipboardObjs.forEach(item => {
+        const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
+        const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
+        const m = new THREE.Mesh(geo, mat);
+        const baseX = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.x : window._clipboardObjs[0].dx + BLDG_W/2) + offset;
+        const baseZ = (selectedObj && !selectedObj.userData.isLabel ? selectedObj.position.z : window._clipboardObjs[0].dz + BLDG_D/2) + offset;
+        m.position.set(snap(baseX + item.dx), item.h/2, snap(baseZ + item.dz));
+        m.rotation.y = item.ry;
+        m.castShadow = true; m.receiveShadow = true;
+        m.userData = {
+          name: item.name + ' copy', type: item.type, furnitureType: item.furnitureType || item.type,
+          fixed: false, width: item.w, height: item.h, depth: item.d,
+          originalColor: item.color, wallClass: item.wallClass
+        };
+        scene.add(m); moveableObjects.push(m); pasted.push(m);
+      });
+    }
+    if (hasLabels) {
+      window._clipboardLabels.forEach(item => {
+        addLabel(item.text, snap(item.x + offset + item.dx), item.y, snap(item.z + offset + item.dz), item.color);
+        pastedLabels.push(labelSprites[labelSprites.length - 1]);
+      });
+    }
+    const allPasted = [...pasted, ...pastedLabels];
+    pushUndo({ type:'paste', items: [...pasted], pastedLabels: [...pastedLabels] });
+    if (allPasted.length === 1) selectObject(allPasted[0]);
+    else if (pasted.length >= 1) { selectObject(pasted[0]); pasted.slice(1).forEach(p => toggleMultiSelect(p)); }
+    else if (pastedLabels.length >= 1) selectObject(pastedLabels[0]);
+    const total = allPasted.length;
+    addChatMsg('system', `✓ Pasted ${total} item${total>1?'s':''}`);
     return;
   }
 
@@ -1139,7 +1223,10 @@ document.addEventListener('keydown', (e) => {
       updatePropFields();
     } else if (action.type === 'paste') {
       action.items.forEach(o => { scene.remove(o); moveableObjects = moveableObjects.filter(m => m !== o); });
+      if (action.pastedLabels) action.pastedLabels.forEach(l => { scene.remove(l); labelSprites = labelSprites.filter(s => s !== l); });
       selectObject(null);
+    } else if (action.type === 'edit-label') {
+      updateLabelText(action.label, action.oldText);
     } else if (action.type === 'add') {
       scene.remove(action.obj); moveableObjects = moveableObjects.filter(m => m !== action.obj);
       selectObject(null);
@@ -1611,8 +1698,13 @@ function deserializeLayout(data) {
   // Rebuild objects
   (data.objects || []).forEach(item => {
     const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
-    const mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
-    if (item.wallClass === 'existing') { mat.roughness = 0.3; mat.metalness = 0.1; }
+    let mat;
+    if (item.furnitureType === 'door') {
+      mat = mats.door.clone();
+    } else {
+      mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
+      if (item.wallClass === 'existing') { mat.roughness = 0.3; mat.metalness = 0.1; }
+    }
     const m = new THREE.Mesh(geo, mat);
     m.position.set(item.px, item.py, item.pz);
     m.rotation.y = item.ry || 0;
