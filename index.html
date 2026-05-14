@@ -1857,6 +1857,28 @@ async function loadPublishedLayout() {
 document.getElementById('btn-publish').addEventListener('click', publishLayout);
 
 // ============================================================
+// Auto-save to localStorage every 30s
+// ============================================================
+function autoSave() {
+  try {
+    const layout = serializeLayout();
+    localStorage.setItem('office-planner-autosave', JSON.stringify({ layout, ts: Date.now() }));
+  } catch(e) { /* ignore quota errors */ }
+}
+setInterval(autoSave, 30000);
+window.addEventListener('beforeunload', autoSave);
+
+function loadAutoSave() {
+  try {
+    const raw = localStorage.getItem('office-planner-autosave');
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data && data.layout && data.layout.objects && data.layout.objects.length > 0) return data;
+  } catch(e) {}
+  return null;
+}
+
+// ============================================================
 // Init
 // ============================================================
 buildStructure();
@@ -1865,9 +1887,25 @@ buildCompass();
 onResize();
 animate();
 
-// Try loading published layout first; fall back to defaults
+// Try loading: autosave (if newer) > published > defaults
 loadPublishedLayout().then(loaded => {
-  if (loaded) {
+  const auto = loadAutoSave();
+  if (auto && loaded) {
+    // If autosave has more objects or is different, offer to restore
+    const pubCount = moveableObjects.length;
+    const autoCount = auto.layout.objects ? auto.layout.objects.length : 0;
+    if (autoCount > pubCount) {
+      if (confirm(`Found autosave with ${autoCount} objects (published has ${pubCount}). Restore autosave?`)) {
+        deserializeLayout(auto.layout);
+        addChatMsg('system', `✓ Restored autosave (${new Date(auto.ts).toLocaleString()})`);
+        return;
+      }
+    }
+    addChatMsg('system', '✓ Loaded published layout');
+  } else if (auto && !loaded) {
+    deserializeLayout(auto.layout);
+    addChatMsg('system', `✓ Restored autosave (${new Date(auto.ts).toLocaleString()})`);
+  } else if (loaded) {
     addChatMsg('system', '✓ Loaded published layout');
   } else {
     buildExistingStructures();
