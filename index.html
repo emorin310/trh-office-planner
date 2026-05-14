@@ -148,6 +148,8 @@
       <button class="tool-btn" data-place="door"><span class="icon">🚪</span> Door</button>
       <button class="tool-btn" data-place="window"><span class="icon">▯</span> Window</button>
       <button class="tool-btn" data-place="partition"><span class="icon">┃</span> Partition</button>
+      <button class="tool-btn" data-place="loading-dock"><span class="icon">▰</span> Loading Dock</button>
+      <button class="tool-btn" data-place="garage-door"><span class="icon">▰</span> Garage Door</button>
       <button class="tool-btn" data-place="text"><span class="icon">𝐓</span> Text</button>
     </div>
 
@@ -564,9 +566,9 @@ function buildStructure() {
   createBox(4, WH_WALL_H, WALL_T, bw, { x: g1 + ldW + 2, y: 0, z: 0 }, 'West Wall (Mid)', { fixed: true, type: 'structure', wallClass: 'outer' });
   const rW = BLDG_W - (g2 + gdW);
   createBox(rW, WH_WALL_H, WALL_T, bw, { x: g2 + gdW + rW/2, y: 0, z: 0 }, 'West Wall (N)', { fixed: true, type: 'structure', wallClass: 'outer' });
-  createBox(ldW, 3, WALL_T*2, mats.door, { x: g1 + ldW/2, y: 0, z: 0 }, 'Loading Dock (18\'11")', { fixed: true, type: 'structure' });
+  createBox(ldW, 3, WALL_T*2, mats.door, { x: g1 + ldW/2, y: 0, z: 0 }, 'Loading Dock (18\'11")', { type: 'structure', furnitureType: 'loading-dock' });
   addLabel('Loading Dock\n18\'11⅝"', g1 + ldW/2, 5, 3, 0xaa8844);
-  createBox(gdW, 3, WALL_T*2, mats.door, { x: g2 + gdW/2, y: 0, z: 0 }, 'Garage Door (15\'10")', { fixed: true, type: 'structure' });
+  createBox(gdW, 3, WALL_T*2, mats.door, { x: g2 + gdW/2, y: 0, z: 0 }, 'Garage Door (15\'10")', { type: 'structure', furnitureType: 'garage-door' });
   addLabel('Garage Door\n15\'9⅝"', g2 + gdW/2, 5, 3, 0xaa8844);
   // E/S/N walls
   createBox(BLDG_W, WH_WALL_H, WALL_T, bw, { x: BLDG_W/2, y: 0, z: BLDG_D }, 'East Wall', { fixed: true, type: 'structure', wallClass: 'outer' });
@@ -850,11 +852,12 @@ function getFurnitureDims(type) {
     'bookshelf': {w:4,h:5,d:1}, 'couch': {w:6,h:2.5,d:2.5},
     'wall': {w:8,h:WALL_H,d:WALL_T}, 'half-wall': {w:8,h:HALF_WALL_H,d:WALL_T},
     'door': {w:3,h:7,d:WALL_T*2}, 'window': {w:4,h:3,d:WALL_T}, 'partition': {w:6,h:WALL_H,d:WALL_T},
+    'loading-dock': {w:18.97,h:3,d:WALL_T*2}, 'garage-door': {w:15.8,h:3,d:WALL_T*2},
   })[type] || null;
 }
 function getMaterialForType(type) {
   if (['wall','half-wall','partition'].includes(type)) return mats.innerWall;
-  if (type === 'door') return mats.door; if (type === 'window') return mats.window;
+  if (type === 'door' || type === 'loading-dock' || type === 'garage-door') return mats.door; if (type === 'window') return mats.window;
   if (type === 'chair') return mats.chair; if (type === 'couch') return mats.couch;
   if (['table-sm','table-lg'].includes(type)) return mats.table;
   if (['cabinet','bookshelf'].includes(type)) return mats.cabinet;
@@ -875,11 +878,11 @@ function placeObject(type, position, nameOverride, rotDeg) {
   if (type === 'chair') {
     mesh = new THREE.Mesh(new THREE.CylinderGeometry(dims.w/2, dims.w/2, dims.h, 16), mat.clone());
     mesh.position.set(position.x, dims.h/2, position.z);
-  } else if (type === 'door') {
-    // Door renders as dark cutout that visually punches through walls
+  } else if (type === 'door' || type === 'loading-dock' || type === 'garage-door') {
+    // Door/dock renders as dark cutout that visually punches through walls
     mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mats.door.clone());
     mesh.position.set(position.x, dims.h/2, position.z);
-    mesh.renderOrder = 1; // render after walls
+    mesh.renderOrder = 1;
   } else if (type === 'window') {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(dims.w, dims.h, dims.d), mat.clone());
     mesh.position.set(position.x, 4 + dims.h/2, position.z);
@@ -890,7 +893,7 @@ function placeObject(type, position, nameOverride, rotDeg) {
   if (rotDeg) mesh.rotation.y = THREE.MathUtils.degToRad(rotDeg);
   mesh.castShadow = true; mesh.receiveShadow = true;
   mesh.userData = {
-    name, type: ['wall','half-wall','partition'].includes(type) ? 'inner' : (type==='door'||type==='window' ? 'opening' : 'furniture'),
+    name, type: ['wall','half-wall','partition'].includes(type) ? 'inner' : (['door','window','loading-dock','garage-door'].includes(type) ? 'opening' : 'furniture'),
     fixed: false, width: dims.w, height: dims.h, depth: dims.d,
     originalColor: mat.color.getHex(), furnitureType: type, wallClass: ['wall','half-wall','partition'].includes(type) ? 'inner' : null,
   };
@@ -1787,7 +1790,7 @@ function deserializeLayout(data) {
   (data.objects || []).forEach(item => {
     const geo = new THREE.BoxGeometry(item.w, item.h, item.d);
     let mat;
-    if (item.furnitureType === 'door') {
+    if (['door','loading-dock','garage-door'].includes(item.furnitureType)) {
       mat = mats.door.clone();
     } else {
       mat = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.5 });
