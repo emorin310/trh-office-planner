@@ -1800,9 +1800,10 @@ function deserializeLayout(data) {
     m.position.set(item.px, item.py, item.pz);
     m.rotation.y = item.ry || 0;
     m.castShadow = true; m.receiveShadow = true;
+    const isDock = ['loading-dock','garage-door'].includes(item.furnitureType) || /loading dock|garage door/i.test(item.name);
     m.userData = {
       name: item.name, type: item.type, furnitureType: item.furnitureType || item.type,
-      fixed: item.fixed, width: item.w, height: item.h, depth: item.d,
+      fixed: isDock ? false : item.fixed, width: item.w, height: item.h, depth: item.d,
       originalColor: item.color, wallClass: item.wallClass
     };
     scene.add(m); moveableObjects.push(m);
