@@ -1544,7 +1544,9 @@ canvas.addEventListener('mousedown', (e) => {
           if (ws.rot !== null) m.rotation.y = ws.rot;
           performWallCuts();
         }
-        pushUndo({ type:'add', obj:m }); selectObject(m);
+        pushUndo({ type:'add', obj:m });
+        // Don't select the placed object while still in placement mode
+        // so R key only rotates the ghost, not previously placed items
       }
     }
     return;
