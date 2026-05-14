@@ -187,6 +187,7 @@
       <button id="btn-grid">Grid: 0.5'</button>
       <button id="btn-snap">Snap: 0.5'</button>
       <button id="btn-labels">Labels: ON</button>
+      <button id="btn-dims">Dims: OFF</button>
       <button id="btn-label-size">Lbl Size: 2×</button>
       <button id="btn-orient">🧭 Reset Orient.</button>
       <button id="btn-group" title="Group selection (⌘G)">📎 Group</button>
@@ -237,7 +238,8 @@ const LAYOUT_FN = 'https://hbvadpewsqwkcfmciuco.supabase.co/functions/v1/office-
 
 let mode = 'select', placeType = null, selectedObj = null, hoveredObj = null;
 let multiSelected = []; // additional objects in multi-select
-let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true, labelScale = 2;
+let isDragging = false, showGrid = true, snapSize = 0.5, showLabels = true, labelScale = 2, showDims = false;
+let dimSprites = [];
 let moveableObjects = [], labelSprites = [];
 
 // Resize handles
@@ -417,6 +419,66 @@ function addLabel(text, x, y, z, color) {
   sprite.userData = { isLabel: true, baseScale: { x: 10, y: 2.5 }, labelText: text, labelColor: color };
   scene.add(sprite);
   labelSprites.push(sprite);
+}
+
+function feetToLabel(ft) {
+  const feet = Math.floor(ft);
+  const inches = Math.round((ft - feet) * 12);
+  return inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+}
+
+function clearDimSprites() {
+  dimSprites.forEach(s => scene.remove(s));
+  dimSprites = [];
+}
+
+function buildDimSprites() {
+  clearDimSprites();
+  // Collect all walls/structures from scene (both fixed and moveable)
+  const allObjs = scene.children.filter(c => c.userData && (c.userData.wallClass || c.userData.type === 'structure' || c.userData.type === 'inner'));
+  allObjs.forEach(obj => {
+    const w = obj.userData.width, d = obj.userData.depth;
+    if (!w || !d) return;
+    // Show the longer dimension (wall length)
+    const len = Math.max(w, d);
+    if (len < 2) return; // skip tiny objects like posts
+    const text = feetToLabel(len);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 256; canvas.height = 64;
+    ctx.font = 'bold 24px system-ui'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffdd44'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+    ctx.strokeText(text, 128, 38); ctx.fillText(text, 128, 38);
+    const tex = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sprite.position.set(obj.position.x, obj.userData.height + 2, obj.position.z);
+    sprite.scale.set(6, 1.5, 1);
+    sprite.userData = { isDim: true };
+    scene.add(sprite);
+    dimSprites.push(sprite);
+  });
+  // Also show dims for moveable walls/partitions
+  moveableObjects.forEach(obj => {
+    if (!obj.userData.wallClass && obj.userData.type !== 'inner') return;
+    const w = obj.userData.width, d = obj.userData.depth;
+    if (!w || !d) return;
+    const len = Math.max(w, d);
+    if (len < 2) return;
+    const text = feetToLabel(len);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 256; canvas.height = 64;
+    ctx.font = 'bold 24px system-ui'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffdd44'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+    ctx.strokeText(text, 128, 38); ctx.fillText(text, 128, 38);
+    const tex = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sprite.position.set(obj.position.x, obj.position.y + obj.userData.height/2 + 2, obj.position.z);
+    sprite.scale.set(6, 1.5, 1);
+    sprite.userData = { isDim: true };
+    scene.add(sprite);
+    dimSprites.push(sprite);
+  });
 }
 
 function updateLabelText(sprite, newText, color) {
@@ -1490,6 +1552,11 @@ document.getElementById('btn-grid').addEventListener('click', (e) => {
 });
 document.getElementById('btn-snap').addEventListener('click', () => { const s = [0,0.25,0.5,1,2,5]; snapSize = s[(s.indexOf(snapSize)+1)%s.length]; document.getElementById('btn-snap').textContent = snapSize > 0 ? `Snap: ${snapSize}'` : 'Snap: OFF'; });
 document.getElementById('btn-labels').addEventListener('click', () => { showLabels = !showLabels; labelSprites.forEach(s => s.visible = showLabels); document.getElementById('btn-labels').textContent = showLabels ? 'Labels: ON' : 'Labels: OFF'; });
+document.getElementById('btn-dims').addEventListener('click', () => {
+  showDims = !showDims;
+  if (showDims) buildDimSprites(); else clearDimSprites();
+  document.getElementById('btn-dims').textContent = showDims ? 'Dims: ON' : 'Dims: OFF';
+});
 document.getElementById('btn-label-size').addEventListener('click', () => {
   const sizes = [0.5, 1, 1.5, 2, 3]; labelScale = sizes[(sizes.indexOf(labelScale)+1)%sizes.length];
   labelSprites.forEach(s => { const b = s.userData.baseScale || {x:10,y:2.5}; s.scale.set(b.x*labelScale, b.y*labelScale, 1); });
