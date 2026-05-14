@@ -1262,15 +1262,22 @@ function showDeskShapeModal(desk) {
 
 function createFurnitureGeometry(type, w, h, d) {
   if (type === 'ldesk') {
+    // Symmetrical T-shape: wide front, centered narrower return at back
+    // This allows horseshoe arrangements when rotated
     const s = new THREE.Shape();
     const hw = w/2, hd = d/2;
-    const legW = w * 0.4;
-    s.moveTo(-hw, -hd);
-    s.lineTo(hw, -hd);
-    s.lineTo(hw, hd);
-    s.lineTo(-hw + legW, hd);
-    s.lineTo(-hw + legW, -hd + d * 0.45);
-    s.lineTo(-hw, -hd + d * 0.45);
+    const returnW = w * 0.4;  // width of the return (back leg)
+    const frontD = d * 0.45;  // depth of the front section
+    const hrw = returnW / 2;
+    // Start bottom-left of return, go clockwise
+    s.moveTo(-hrw, -hd);       // bottom-left of return
+    s.lineTo(hrw, -hd);        // bottom-right of return
+    s.lineTo(hrw, hd - frontD); // right side where front starts
+    s.lineTo(hw, hd - frontD);  // outer right of front
+    s.lineTo(hw, hd);           // top-right
+    s.lineTo(-hw, hd);          // top-left
+    s.lineTo(-hw, hd - frontD); // outer left of front
+    s.lineTo(-hrw, hd - frontD);// left side where front starts
     s.closePath();
     const geo = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false });
     geo.rotateX(-Math.PI / 2);
